@@ -1,0 +1,9 @@
+yamdi-1.0beta2:
+   * [Fix] The last video tag or audio tag has not been copied
+   * [Add] If the video stream is Sorenson H.263, Screen Video or
+           Screen Video 2 the width and height will be in the
+           meta data.
+
+yamdi-1.0beta:
+   * Initial release
+

@@ -43,16 +43,22 @@
 #include <string.h>
 #include <unistd.h>
 
-#define FLV_UI32(x) (int)(((x[0]) * 3 * 256) + ((x[1]) * 2 * 256) + ((x[2]) * 256) + (x[3]))
-#define FLV_UI24(x) (int)(((x[0]) * 2 * 256) + ((x[1]) * 256) + (x[2]))
-#define FLV_UI16(x) (int)(((x[0]) * 256) + (x[1]))
+#define FLV_UI32(x) (int)(((x[0]) << 24) + ((x[1]) << 16) + ((x[2]) << 8) + (x[3]))
+#define FLV_UI24(x) (int)(((x[0]) << 16) + ((x[1]) << 8) + (x[2]))
+#define FLV_UI16(x) (int)(((x[0]) << 8) + (x[1]))
 #define FLV_UI8(x) (int)((x))
 
 #define FLV_AUDIODATA	8
 #define FLV_VIDEODATA	9
 #define FLV_SCRIPTDATAOBJECT	18
 
-#define YAMDI_VERSION	"1.0beta"
+#define FLV_H263VIDEOPACKET	2
+#define FLV_SCREENVIDEOPACKET	3
+#define	FLV_VP6VIDEOPACKET	4
+#define	FLV_VP6ALPHAVIDEOPACKET	5
+#define FLV_SCREENV2VIDEOPACKET	6
+
+#define YAMDI_VERSION	"1.0beta2"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -130,6 +136,8 @@ size_t writeFLVMetaData(FILE *fp);
 
 void readFLVFirstPass(char *flv, size_t streampos, size_t filesize);
 void readFLVSecondPass(char *flv, size_t streampos, size_t filesize);
+void readFLVH263VideoPacket(const unsigned char *h263);
+void readFLVScreenVideoPacket(const unsigned char *sv);
 
 size_t writeFLVScriptDataValueArray(FILE *fp, const char *name, size_t len);
 size_t writeFLVScriptDataECMAArray(FILE *fp, const char *name, size_t len);
@@ -305,15 +313,15 @@ void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
 	writeFLVMetaData(fp);
 
 	for(;;) {
-		if(streampos + sizeof(FLVTag_t) >= filesize)
+		if(streampos + sizeof(FLVTag_t) > filesize)
 			break;
 
 		flvtag = (FLVTag_t *)&flv[streampos];
 
-		// Die Groesse des Tags (Header + Data) inkl. PreviousTagSize
+		// Die Groesse des Tags (Header + Data) + PreviousTagSize
 		datasize = sizeof(FLVTag_t) + FLV_UI24(flvtag->datasize) + 4;
 
-		if(streampos + datasize >= filesize)
+		if(streampos + datasize > filesize)
 			break;
 
 		if(flvtag->type == FLV_VIDEODATA || flvtag->type == FLV_AUDIODATA)
@@ -371,13 +379,15 @@ void readFLVSecondPass(char *flv, size_t streampos, size_t filesize) {
 	datapos = 0;
 
 	for(;;) {
-		if(streampos + sizeof(FLVTag_t) >= filesize)
+		if(streampos + sizeof(FLVTag_t) > filesize)
 			break;
 
 		flvtag = (FLVTag_t *)&flv[streampos];
+
+		// TagHeader + TagData + PreviousTagSize
 		datasize = sizeof(FLVTag_t) + FLV_UI24(flvtag->datasize) + 4;
 
-		if(streampos + datasize >= filesize)
+		if(streampos + datasize > filesize)
 			break;
 
 		if(flvtag->type == FLV_VIDEODATA) {
@@ -406,7 +416,7 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 	FLVVideoData_t *flvvideo;
 
 	for(;;) {
-		if(streampos + sizeof(FLVTag_t) >= filesize)
+		if(streampos + sizeof(FLVTag_t) > filesize)
 			break;
 
 		flvtag = (FLVTag_t *)&flv[streampos];
@@ -414,7 +424,7 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 		// TagHeader + TagData + PreviousTagSize
 		datasize = sizeof(FLVTag_t) + FLV_UI24(flvtag->datasize) + 4;
 
-		if(streampos + datasize >= filesize)
+		if(streampos + datasize > filesize)
 			break;
 
 		if(flvtag->type == FLV_AUDIODATA) {
@@ -476,6 +486,24 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 				flvmetadata.videocodecid = (double)(flvvideo->flags & 0xf);
 
 				flvmetadata.hasVideo = 1;
+
+				switch(flvvideo->flags & 0xf) {
+					case FLV_H263VIDEOPACKET:
+						readFLVH263VideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						break;
+					case FLV_SCREENVIDEOPACKET:
+						readFLVScreenVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						break;
+					case FLV_VP6VIDEOPACKET:
+						break;
+					case FLV_VP6ALPHAVIDEOPACKET:
+						break;
+					case FLV_SCREENV2VIDEOPACKET:
+						readFLVScreenVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						break;
+					default:
+						break;
+				}
 			}
 
 			// keyframes
@@ -507,6 +535,63 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 			exit(1);
 		}
 	}
+
+	return;
+}
+
+void readFLVH263VideoPacket(const unsigned char *h263) {
+	int startcode, picturesize;
+
+	// 8bit  |pppppppp|pppppppp|pvvvvvrr|rrrrrrss|swwwwwww|whhhhhhh|h
+	// 16bit |pppppppp|pppppppp|pvvvvvrr|rrrrrrss|swwwwwww|wwwwwwww|whhhhhhh|hhhhhhhh|h
+
+	startcode = FLV_UI24(h263) >> 7;
+	if(startcode != 1)
+		return;
+
+	picturesize = ((h263[3] & 0x3) << 1) + ((h263[4] >> 7) & 0x1);
+
+	switch(picturesize) {
+		case 0: // Custom 8bit
+			flvmetadata.width = (double)(((h263[4] & 0x7f) << 1) + ((h263[5] >> 7) & 0x1));
+			flvmetadata.height = (double)(((h263[5] & 0x7f) << 1) + ((h263[6] >> 7) & 0x1));
+			break;
+		case 1: // Custom 16bit
+			flvmetadata.width = (double)(((h263[4] & 0x7f) << 1) + (h263[5] << 1) + ((h263[6] >> 7) & 0x1));
+			flvmetadata.height = (double)(((h263[6] & 0x7f) << 1) + (h263[7] << 1) + ((h263[8] >> 7) & 0x1));
+			break;
+		case 2: // CIF
+			flvmetadata.width = 352.0;
+			flvmetadata.height = 288.0;
+			break;
+		case 3: // QCIF
+			flvmetadata.width = 176.0;
+			flvmetadata.height = 144.0;
+			break;
+		case 4: // SQCIF
+			flvmetadata.width = 128.0;
+			flvmetadata.height = 96.0;
+			break;
+		case 5:
+			flvmetadata.width = 320.0;
+			flvmetadata.height = 240.0;
+			break;
+		case 6:
+			flvmetadata.width = 160.0;
+			flvmetadata.height = 120.0;
+			break;
+		default:
+			break;
+	}
+
+	return;
+}
+
+void readFLVScreenVideoPacket(const unsigned char *sv) {
+	// |1111wwww|wwwwwwww|2222hhhh|hhhhhhhh|
+
+	flvmetadata.width = (double)((sv[0] << 4) + sv[1]);
+	flvmetadata.height = (double)((sv[2] << 4) + sv[3]);
 
 	return;
 }
@@ -605,6 +690,18 @@ metadatapass:
 		// videocodecid
 		datasize += writeFLVScriptDataValueDouble(fp, "videocodecid", flvmetadata.videocodecid);
 		length++;
+
+		// width
+		if(flvmetadata.width != 0.0) {
+			datasize += writeFLVScriptDataValueDouble(fp, "width", flvmetadata.width);
+			length++;
+		}
+
+		// height
+		if(flvmetadata.height != 0.0) {
+			datasize += writeFLVScriptDataValueDouble(fp, "height", flvmetadata.height);
+			length++;
+		}
 	}
 
 	if(flvmetadata.hasAudio == 1) {
@@ -910,4 +1007,3 @@ void print_usage(void) {
 	fprintf(stderr, "\n");
 	return;
 }
-
