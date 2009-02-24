@@ -58,7 +58,7 @@
 #define	FLV_VP6ALPHAVIDEOPACKET	5
 #define FLV_SCREENV2VIDEOPACKET	6
 
-#define YAMDI_VERSION	"1.1"
+#define YAMDI_VERSION	"1.2"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -91,6 +91,7 @@ typedef struct {
 	double filesize;
 
 	double lasttimestamp;
+	double lastvideoframetimestamp;
 	double lastkeyframetimestamp;
 	double lastkeyframelocation;
 
@@ -104,6 +105,13 @@ typedef struct {
 
 	int onmetadatalength;
 	int metadatasize;
+	size_t onlastsecondlength;
+	size_t lastsecondsize;
+	int hasLastSecond;
+	int lastsecondTagCount;
+	size_t onlastkeyframelength;
+	size_t lastkeyframesize;
+	int hasLastKeyframe;
 } FLVMetaData_t;
 
 FLVMetaData_t flvmetadata;
@@ -131,8 +139,10 @@ typedef struct {
 	unsigned char flags;
 } FLVVideoData_t;
 
-void initFLVMetaData(const char *creator);
+void initFLVMetaData(const char *creator, int lastsecond, int lastkeyframe);
 size_t writeFLVMetaData(FILE *fp);
+size_t writeFLVLastSecond(FILE *fp);
+size_t writeFLVLastKeyframe(FILE *fp);
 
 void readFLVFirstPass(char *flv, size_t streampos, size_t filesize);
 void readFLVSecondPass(char *flv, size_t streampos, size_t filesize);
@@ -164,7 +174,7 @@ void print_usage(void);
 
 int main(int argc, char *argv[]) {
 	FILE *fp_infile = NULL, *fp_outfile = NULL, *devnull;
-	int c;
+	int c, lastsecond = 0, lastkeyframe = 0;
 	char *flv, *infile, *outfile, *creator;
 	unsigned int i;
 	size_t filesize = 0, streampos, metadatasize;
@@ -177,7 +187,7 @@ int main(int argc, char *argv[]) {
 	outfile = NULL;
 	creator = NULL;
 
-	while((c = getopt(argc, argv, "i:o:c:h")) != -1) {
+	while((c = getopt(argc, argv, "i:o:c:lkh")) != -1) {
 		switch(c) {
 			case 'i':
 				if(infile == NULL) {
@@ -230,6 +240,12 @@ int main(int argc, char *argv[]) {
 			case 'c':
 				creator = optarg;
 				break;
+			case 'l':
+				lastsecond = 1;
+				break;
+			case 'k':
+				lastkeyframe = 1;
+				break;
 			case 'h':
 				print_usage();
 				exit(1);
@@ -267,7 +283,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Metadata initialisieren
-	initFLVMetaData(creator);
+	initFLVMetaData(creator, lastsecond, lastkeyframe);
 
 	flvfileheader = (FLVFileHeader_t *)flv;
 
@@ -283,7 +299,11 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
+	// Die Groessen berechnen
 	metadatasize = writeFLVMetaData(devnull);
+	flvmetadata.lastsecondsize = writeFLVLastSecond(devnull);
+	flvmetadata.lastkeyframesize = writeFLVLastKeyframe(devnull);	// Not fully implemented, i.e. has no effect
+
 	fclose(devnull);
 
 	// Falls es Keyframes hat, muss ein 2. Durchgang fuer den Keyframeindex gemacht werden
@@ -299,6 +319,8 @@ int main(int argc, char *argv[]) {
 
 	// filesize = FLVFileHeader + PreviousTagSize0 + MetadataSize + DataSize
 	flvmetadata.filesize = (double)(sizeof(FLVFileHeader_t) + 4 + metadatasize + flvmetadata.datasize);
+	if(flvmetadata.hasLastSecond == 1)
+		flvmetadata.filesize += (double)flvmetadata.lastsecondsize;
 
 	writeFLV(fp_outfile, flv, streampos, filesize);
 
@@ -306,11 +328,14 @@ int main(int argc, char *argv[]) {
 }
 
 void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
+	int tagcount;
 	size_t datasize;
 	FLVTag_t *flvtag;
 
 	writeFLVHeader(fp);
 	writeFLVMetaData(fp);
+
+	tagcount = 0;
 
 	for(;;) {
 		if(streampos + sizeof(FLVTag_t) > filesize)
@@ -324,8 +349,16 @@ void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
 		if(streampos + datasize > filesize)
 			break;
 
-		if(flvtag->type == FLV_VIDEODATA || flvtag->type == FLV_AUDIODATA)
+		if(flvtag->type == FLV_VIDEODATA || flvtag->type == FLV_AUDIODATA) {
 			fwrite(&flv[streampos], datasize, 1, fp);
+
+			if(flvtag->type == FLV_VIDEODATA && flvmetadata.hasLastSecond == 1) {
+				tagcount++;
+
+				if(tagcount == flvmetadata.lastsecondTagCount)
+					writeFLVLastSecond(fp);
+			}
+		}
 
 		streampos += datasize;
 	}
@@ -367,7 +400,8 @@ void writeFLVHeader(FILE *fp) {
 }
 
 void readFLVSecondPass(char *flv, size_t streampos, size_t filesize) {
-	int i;
+	int i, tagcount, afterlastsecond;
+	double lastsecond, currenttimestamp;
 	size_t datasize, datapos;
 	FLVTag_t *flvtag;
 	FLVVideoData_t *flvvideo;
@@ -377,6 +411,10 @@ void readFLVSecondPass(char *flv, size_t streampos, size_t filesize) {
 
 	i = 0;
 	datapos = 0;
+
+	tagcount = 0;
+	afterlastsecond = 0;
+	lastsecond = flvmetadata.lastvideoframetimestamp - 1.0;
 
 	for(;;) {
 		if(streampos + sizeof(FLVTag_t) > filesize)
@@ -393,17 +431,31 @@ void readFLVSecondPass(char *flv, size_t streampos, size_t filesize) {
 		if(flvtag->type == FLV_VIDEODATA) {
 			flvvideo = (FLVVideoData_t *)&flv[streampos + sizeof(FLVTag_t)];
 
+			// Keyframes
 			if(((flvvideo->flags >> 4) & 1) == 1) {
 				flvmetadata.filepositions[i] = (double)datapos;
 				flvmetadata.times[i] = (double)((flvtag->timestamp_ex << 24) + (flvtag->timestamp[0] << 16) + (flvtag->timestamp[1] << 8) + flvtag->timestamp[2]) / 1000.0;
+
 				i++;
 			}
 		}
 
 		streampos += datasize;
 
-		if(flvtag->type == FLV_VIDEODATA || flvtag->type == FLV_AUDIODATA)
+		if(flvtag->type == FLV_VIDEODATA || flvtag->type == FLV_AUDIODATA) {
 			datapos += datasize;
+
+			if(flvtag->type == FLV_VIDEODATA && flvmetadata.hasLastSecond == 1 && afterlastsecond == 0 && lastsecond > 1.0) {
+				tagcount++;
+				currenttimestamp = (double)((flvtag->timestamp_ex << 24) + (flvtag->timestamp[0] << 16) + (flvtag->timestamp[1] << 8) + flvtag->timestamp[2]) / 1000.0;
+
+				if(currenttimestamp > lastsecond) {
+					datapos += flvmetadata.lastsecondsize;
+					flvmetadata.lastsecondTagCount = tagcount;
+					afterlastsecond = 1;
+				}
+			}
+		}
 	}
 
 	return;
@@ -523,6 +575,8 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 			}
 			else
 				flvmetadata.canSeekToEnd = 0;
+
+			flvmetadata.lastvideoframetimestamp = (double)((flvtag->timestamp_ex << 24) + (flvtag->timestamp[0] << 16) + (flvtag->timestamp[1] << 8) + flvtag->timestamp[2]) / 1000.0;
 		}
 
 		flvmetadata.lasttimestamp = (double)((flvtag->timestamp_ex << 24) + (flvtag->timestamp[0] << 16) + (flvtag->timestamp[1] << 8) + flvtag->timestamp[2]) / 1000.0;
@@ -611,8 +665,8 @@ void readFLVH263VideoPacket(const unsigned char *h263) {
 void readFLVScreenVideoPacket(const unsigned char *sv) {
 	// |1111wwww|wwwwwwww|2222hhhh|hhhhhhhh|
 
-	flvmetadata.width = (double)((sv[0] << 4) + sv[1]);
-	flvmetadata.height = (double)((sv[2] << 4) + sv[3]);
+	flvmetadata.width = (double)(((sv[0] & 0xf) << 8) + sv[1]);
+	flvmetadata.height = (double)(((sv[2] & 0xf) << 8) + sv[3]);
 
 	return;
 }
@@ -631,13 +685,15 @@ void readFLVVP62AlphaVideoPacket(const unsigned char *vp62a) {
 	return;
 }
 
-void initFLVMetaData(const char *creator) {
+void initFLVMetaData(const char *creator, int lastsecond, int lastkeyframe) {
 	char *t;
 
 	t = (char *)&flvmetadata;
 	bzero(t, sizeof(FLVMetaData_t));
 
 	flvmetadata.hasMetadata = 1;
+	flvmetadata.hasLastSecond = lastsecond;
+	flvmetadata.hasLastKeyframe = lastkeyframe;
 
 	if(creator != NULL)
 		strncpy(flvmetadata.creator, creator, sizeof(flvmetadata.creator));
@@ -816,6 +872,78 @@ metadatapass:
 	}
 
 	flvmetadata.metadatasize = datasize - sizeof(FLVTag_t);
+
+	datasize += writeFLVPreviousTagSize(fp, datasize);
+
+	return datasize;
+}
+
+size_t writeFLVLastSecond(FILE *fp) {
+	FLVTag_t flvtag;
+	size_t datasize = 0;
+	char *t;
+
+	// Zuerst ein ScriptDataObject Tag schreiben
+
+	// Alles auf 0 setzen
+	t = (char *)&flvtag;
+	bzero(t, sizeof(FLVTag_t));
+
+	// Tag Type
+	flvtag.type = FLV_SCRIPTDATAOBJECT;
+
+	flvtag.datasize[0] = ((flvmetadata.onlastsecondlength >> 16) & 0xff);
+	flvtag.datasize[1] = ((flvmetadata.onlastsecondlength >> 8) & 0xff);
+	flvtag.datasize[2] = (flvmetadata.onlastsecondlength & 0xff);
+
+	datasize = 0;
+	datasize += fwrite(t, 1, sizeof(FLVTag_t), fp);
+
+	// ScriptDataObject
+	datasize += writeFLVScriptDataObject(fp);
+
+	// onLastSecond
+	datasize += writeFLVScriptDataECMAArray(fp, "onLastSecond", 0);
+
+	datasize += writeFLVScriptDataVariableArrayEnd(fp);
+
+	flvmetadata.onlastsecondlength = datasize - sizeof(FLVTag_t);
+
+	datasize += writeFLVPreviousTagSize(fp, datasize);
+
+	return datasize;
+}
+
+size_t writeFLVLastKeyframe(FILE *fp) {
+	FLVTag_t flvtag;
+	size_t datasize = 0;
+	char *t;
+
+	// Zuerst ein ScriptDataObject Tag schreiben
+
+	// Alles auf 0 setzen
+	t = (char *)&flvtag;
+	bzero(t, sizeof(FLVTag_t));
+
+	// Tag Type
+	flvtag.type = FLV_SCRIPTDATAOBJECT;
+
+	flvtag.datasize[0] = ((flvmetadata.onlastkeyframelength >> 16) & 0xff);
+	flvtag.datasize[1] = ((flvmetadata.onlastkeyframelength >> 8) & 0xff);
+	flvtag.datasize[2] = (flvmetadata.onlastkeyframelength & 0xff);
+
+	datasize = 0;
+	datasize += fwrite(t, 1, sizeof(FLVTag_t), fp);
+
+	// ScriptDataObject
+	datasize += writeFLVScriptDataObject(fp);
+
+	// onLastKeyframe
+	datasize += writeFLVScriptDataECMAArray(fp, "onLastKeyframe", 0);
+
+	datasize += writeFLVScriptDataVariableArrayEnd(fp);
+
+	flvmetadata.onlastkeyframelength = datasize - sizeof(FLVTag_t);
 
 	datasize += writeFLVPreviousTagSize(fp, datasize);
 
@@ -1045,6 +1173,8 @@ void print_usage(void) {
 	fprintf(stderr, "\t\tstdout.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-l\tAdd the onLastSecond event.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-h\tThis description.\n");
 	fprintf(stderr, "\n");

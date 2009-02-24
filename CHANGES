@@ -1,6 +1,11 @@
+yamdi-1.2:
+   * [Fix] Width and height calculation of ScreenVideo stream was
+           wrong
+   * [Add] onLastSecond event with option -l
+
 yamdi-1.1:
    * [Fix] Width and height calculation of H.263 video streams with
-           custom 16bit width and heigth was wrong.
+           custom 16bit width and height was wrong.
 
 yamdi-1.0:
    * [Add] Width and height detection for VP6 alpha video
