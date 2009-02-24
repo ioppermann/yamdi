@@ -1,7 +1,7 @@
 /*
  * yamdi.c
  *
- * Copyright (c) 2007, Ingo Oppermann
+ * Copyright (c) 2007-2008, Ingo Oppermann
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,11 @@
  */
 
 #include <sys/types.h>
-#include <sys/mman.h>
+#ifdef __MINGW32__
+	#include <windows.h>
+#else
+	#include <sys/mman.h>
+#endif
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +62,7 @@
 #define	FLV_VP6ALPHAVIDEOPACKET	5
 #define FLV_SCREENV2VIDEOPACKET	6
 
-#define YAMDI_VERSION	"1.3"
+#define YAMDI_VERSION	"1.4"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -141,7 +145,7 @@ typedef struct {
 
 void initFLVMetaData(const char *creator, int lastsecond, int lastkeyframe);
 size_t writeFLVMetaData(FILE *fp);
-size_t writeFLVLastSecond(FILE *fp);
+size_t writeFLVLastSecond(FILE *fp, double timestamp);
 size_t writeFLVLastKeyframe(FILE *fp);
 
 void readFLVFirstPass(char *flv, size_t streampos, size_t filesize);
@@ -175,6 +179,9 @@ void print_usage(void);
 
 int main(int argc, char *argv[]) {
 	FILE *fp_infile = NULL, *fp_outfile = NULL, *fp_xmloutfile = NULL, *devnull;
+#ifdef __MINGW32__
+	HANDLE fh_infile = NULL;
+#endif
 	int c, lastsecond = 0, lastkeyframe = 0;
 	char *flv, *infile, *outfile, *xmloutfile, *creator;
 	unsigned int i;
@@ -209,7 +216,14 @@ int main(int argc, char *argv[]) {
 
 					filesize = sb.st_size;
 
+#ifndef __MINGW32__
 					fp_infile = fopen(infile, "rb");
+#else
+					// Open infile with CreateFile() API
+					fh_infile = CreateFile(infile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+					// Meaningless type casting here. It is just used to pass the error checking codes.
+					fp_infile = (FILE *)fh_infile;
+#endif
 					if(fp_infile == NULL) {
 						fprintf(stderr, "Couldn't open %s.\n", infile);
 						exit(1);
@@ -289,7 +303,17 @@ int main(int argc, char *argv[]) {
 	}
 
 	// mmap von infile erstellen
+#ifndef __MINGW32__
 	flv = mmap(NULL, filesize, PROT_READ, MAP_NOCORE | MAP_PRIVATE, fileno(fp_infile), 0);
+#else
+	HANDLE h = NULL;
+	h = CreateFileMapping(fh_infile, NULL, PAGE_READONLY | SEC_COMMIT, 0, filesize,  NULL);
+	if(h == NULL) {
+		fprintf(stderr, "Couldn't create file mapping object %s. Error code: %d\n", infile, (int)GetLastError());
+		exit(1);
+	}
+	flv = MapViewOfFile(h, FILE_MAP_READ, 0, 0, filesize);
+#endif
 	if(flv == NULL) {
 		fprintf(stderr, "Couldn't load %s.\n", infile);
 		exit(1);
@@ -311,7 +335,12 @@ int main(int argc, char *argv[]) {
 	// Das FLV einlesen und Informationen fuer die Metatags extrahieren
 	readFLVFirstPass(flv, streampos, filesize);
 
+#ifndef __MINGW32__
 	devnull = fopen("/dev/null", "wb");
+#else
+	devnull = fopen("nul", "wb");
+#endif
+
 	if(devnull == NULL) {
 		fprintf(stderr, "Couldn't open NULL device.\n");
 		exit(1);
@@ -319,7 +348,7 @@ int main(int argc, char *argv[]) {
 
 	// Die Groessen berechnen
 	metadatasize = writeFLVMetaData(devnull);
-	flvmetadata.lastsecondsize = writeFLVLastSecond(devnull);
+	flvmetadata.lastsecondsize = writeFLVLastSecond(devnull, 0.0);
 	flvmetadata.lastkeyframesize = writeFLVLastKeyframe(devnull);	// Not fully implemented, i.e. has no effect
 
 	fclose(devnull);
@@ -351,6 +380,7 @@ int main(int argc, char *argv[]) {
 
 void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
 	int tagcount;
+	double currenttimestamp;
 	size_t datasize;
 	FLVTag_t *flvtag;
 
@@ -377,8 +407,10 @@ void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
 			if(flvtag->type == FLV_VIDEODATA && flvmetadata.hasLastSecond == 1) {
 				tagcount++;
 
-				if(tagcount == flvmetadata.lastsecondTagCount)
-					writeFLVLastSecond(fp);
+				if(tagcount == flvmetadata.lastsecondTagCount) {
+					currenttimestamp = (double)((flvtag->timestamp_ex << 24) + (flvtag->timestamp[0] << 16) + (flvtag->timestamp[1] << 8) + flvtag->timestamp[2]) / 1000.0;
+					writeFLVLastSecond(fp, currenttimestamp);
+				}
 			}
 		}
 
@@ -469,7 +501,7 @@ void writeFLVHeader(FILE *fp) {
 	FLVFileHeader_t flvheader;
 
 	t = (char *)&flvheader;
-	bzero(t, sizeof(FLVFileHeader_t));
+	memset(t, 0, sizeof(FLVFileHeader_t));
 
 	flvheader.signature[0] = 'F';
 	flvheader.signature[1] = 'L';
@@ -786,7 +818,7 @@ void initFLVMetaData(const char *creator, int lastsecond, int lastkeyframe) {
 	char *t;
 
 	t = (char *)&flvmetadata;
-	bzero(t, sizeof(FLVMetaData_t));
+	memset(t, 0, sizeof(FLVMetaData_t));
 
 	flvmetadata.hasMetadata = 1;
 	flvmetadata.hasLastSecond = lastsecond;
@@ -813,7 +845,7 @@ size_t writeFLVMetaData(FILE *fp) {
 
 	// Alles auf 0 setzen
 	t = (char *)&flvtag;
-	bzero(t, sizeof(FLVTag_t));
+	memset(t, 0, sizeof(FLVTag_t));
 
 	// Tag Type
 	flvtag.type = FLV_SCRIPTDATAOBJECT;
@@ -977,8 +1009,9 @@ metadatapass:
 	return datasize;
 }
 
-size_t writeFLVLastSecond(FILE *fp) {
+size_t writeFLVLastSecond(FILE *fp, double timestamp) {
 	FLVTag_t flvtag;
+	int currenttimestamp;
 	size_t datasize = 0;
 	char *t;
 
@@ -986,10 +1019,17 @@ size_t writeFLVLastSecond(FILE *fp) {
 
 	// Alles auf 0 setzen
 	t = (char *)&flvtag;
-	bzero(t, sizeof(FLVTag_t));
+	memset(t, 0, sizeof(FLVTag_t));
 
 	// Tag Type
 	flvtag.type = FLV_SCRIPTDATAOBJECT;
+
+	// Timestamp
+	currenttimestamp = (int)(timestamp * 1000.0);
+	flvtag.timestamp_ex = ((currenttimestamp >> 24) & 0xff);
+	flvtag.timestamp[0] = ((currenttimestamp >> 16) & 0xff);
+	flvtag.timestamp[1] = ((currenttimestamp >> 8) & 0xff);
+	flvtag.timestamp[2] = (currenttimestamp & 0xff);
 
 	flvtag.datasize[0] = ((flvmetadata.onlastsecondlength >> 16) & 0xff);
 	flvtag.datasize[1] = ((flvmetadata.onlastsecondlength >> 8) & 0xff);
@@ -1022,7 +1062,7 @@ size_t writeFLVLastKeyframe(FILE *fp) {
 
 	// Alles auf 0 setzen
 	t = (char *)&flvtag;
-	bzero(t, sizeof(FLVTag_t));
+	memset(t, 0, sizeof(FLVTag_t));
 
 	// Tag Type
 	flvtag.type = FLV_SCRIPTDATAOBJECT;
@@ -1271,7 +1311,7 @@ void print_usage(void) {
 	fprintf(stderr, "\t-o\tThe resulting FLV file with the metatags. If the file\n");
 	fprintf(stderr, "\t\tname is '-' the output will be written to stdout.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "\t-x\tA XML file with the resulting metadata information. If the\n");
+	fprintf(stderr, "\t-x\tAn XML file with the resulting metadata information. If the\n");
 	fprintf(stderr, "\t\toutput file is ommited, only metadata will be generated.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");

@@ -1,0 +1,11 @@
+# MinGW Makefile for yamdi
+
+CC=c:\mingw\bin\gcc
+CFLAGS=-O2 -Wall
+
+yamdi: yamdi.c
+	$(CC) $(CFLAGS) yamdi.c -o yamdi.exe
+
+clean: yamdi
+	rm -f yamdi.exe
+

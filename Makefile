@@ -1,9 +1,10 @@
 # Makefile for yamdi
 
+CC=gcc
 CFLAGS=-O2 -Wall
 
 yamdi: yamdi.c
-	gcc $(CFLAGS) yamdi.c -o yamdi
+	$(CC) $(CFLAGS) yamdi.c -o yamdi
 
 clean: yamdi
 	rm -f yamdi

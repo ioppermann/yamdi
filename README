@@ -1,6 +1,6 @@
 
    yamdi - Yet Another MetaData Injector for FLV
-   Version: 1.3
+   Version: 1.4
 
    yamdi stands for Yet Another MetaData Injector and is a metadata injector
    for FLV files. It adds the onMetaData event to your FLV files. yamdi should

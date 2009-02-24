@@ -1,3 +1,7 @@
+yamdi-1.4:
+   * [Fix] The onLastSecond event did not have the correct timestamp
+   * [Add] Source code compatible with Win32 (MinGW32) [sfyang]
+
 yamdi-1.3:
    * [Fix] SCRIPTDATAVARIABLEEND tag of the onMetaData object was missing
    * [Add] XML output of the meta data with option -x [teshock]
