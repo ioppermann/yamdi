@@ -35,8 +35,8 @@
  *
  */
 
-#include <sys/mman.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +58,7 @@
 #define	FLV_VP6ALPHAVIDEOPACKET	5
 #define FLV_SCREENV2VIDEOPACKET	6
 
-#define YAMDI_VERSION	"1.0"
+#define YAMDI_VERSION	"1.1"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -496,19 +496,19 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 
 				switch(flvvideo->flags & 0xf) {
 					case FLV_H263VIDEOPACKET:
-						readFLVH263VideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						readFLVH263VideoPacket((unsigned char *)&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_SCREENVIDEOPACKET:
-						readFLVScreenVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						readFLVScreenVideoPacket((unsigned char *)&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_VP6VIDEOPACKET:
-						readFLVVP62VideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						readFLVVP62VideoPacket((unsigned char *)&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_VP6ALPHAVIDEOPACKET:
-						readFLVVP62AlphaVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						readFLVVP62AlphaVideoPacket((unsigned char *)&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_SCREENV2VIDEOPACKET:
-						readFLVScreenVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
+						readFLVScreenVideoPacket((unsigned char *)&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					default:
 						break;
@@ -578,8 +578,8 @@ void readFLVH263VideoPacket(const unsigned char *h263) {
 			flvmetadata.height = (double)(((h263[5] & 0x7f) << 1) + ((h263[6] >> 7) & 0x1));
 			break;
 		case 1: // Custom 16bit
-			flvmetadata.width = (double)(((h263[4] & 0x7f) << 1) + (h263[5] << 1) + ((h263[6] >> 7) & 0x1));
-			flvmetadata.height = (double)(((h263[6] & 0x7f) << 1) + (h263[7] << 1) + ((h263[8] >> 7) & 0x1));
+			flvmetadata.width = (double)(((h263[4] & 0x7f) << 9) + (h263[5] << 1) + ((h263[6] >> 7) & 0x1));
+			flvmetadata.height = (double)(((h263[6] & 0x7f) << 9) + (h263[7] << 1) + ((h263[8] >> 7) & 0x1));
 			break;
 		case 2: // CIF
 			flvmetadata.width = 352.0;
