@@ -58,7 +58,7 @@
 #define	FLV_VP6ALPHAVIDEOPACKET	5
 #define FLV_SCREENV2VIDEOPACKET	6
 
-#define YAMDI_VERSION	"1.2"
+#define YAMDI_VERSION	"1.3"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -168,14 +168,15 @@ size_t writeFLVBool(FILE *fp, int value);
 size_t writeFLVDouble(FILE *fp, double v);
 
 void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize);
+void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile);
 void writeFLVHeader(FILE *fp);
 
 void print_usage(void);
 
 int main(int argc, char *argv[]) {
-	FILE *fp_infile = NULL, *fp_outfile = NULL, *devnull;
+	FILE *fp_infile = NULL, *fp_outfile = NULL, *fp_xmloutfile = NULL, *devnull;
 	int c, lastsecond = 0, lastkeyframe = 0;
-	char *flv, *infile, *outfile, *creator;
+	char *flv, *infile, *outfile, *xmloutfile, *creator;
 	unsigned int i;
 	size_t filesize = 0, streampos, metadatasize;
 	struct stat sb;
@@ -185,9 +186,10 @@ int main(int argc, char *argv[]) {
 
 	infile = NULL;
 	outfile = NULL;
+	xmloutfile = NULL;
 	creator = NULL;
 
-	while((c = getopt(argc, argv, "i:o:c:lkh")) != -1) {
+	while((c = getopt(argc, argv, "i:o:x:c:lkh")) != -1) {
 		switch(c) {
 			case 'i':
 				if(infile == NULL) {
@@ -237,6 +239,17 @@ int main(int argc, char *argv[]) {
 						fp_outfile = stdout;
 				}
 				break;
+			case 'x':
+				if(xmloutfile == NULL) {
+					xmloutfile = optarg;
+		
+					fp_xmloutfile = fopen(xmloutfile, "wb");
+					if(fp_xmloutfile == NULL) {
+						fprintf(stderr, "Couldn't open %s.\n", outfile);
+						exit(1);
+					}
+				}
+				break;
 			case 'c':
 				creator = optarg;
 				break;
@@ -265,8 +278,13 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	if(fp_infile == NULL || fp_outfile == NULL) {
-		fprintf(stderr, "Please provide an input file and an output file. -h for help.\n");
+	if(infile == NULL) {
+		fprintf(stderr, "Please provide an input file. -h for help.\n");
+		exit(1);
+	}
+
+	if(outfile == NULL && xmloutfile == NULL) {
+		fprintf(stderr, "Please provide at least one output file. -h for help.\n");
 		exit(1);
 	}
 
@@ -322,7 +340,11 @@ int main(int argc, char *argv[]) {
 	if(flvmetadata.hasLastSecond == 1)
 		flvmetadata.filesize += (double)flvmetadata.lastsecondsize;
 
-	writeFLV(fp_outfile, flv, streampos, filesize);
+	if(outfile != NULL)
+		writeFLV(fp_outfile, flv, streampos, filesize);
+
+	if(xmloutfile != NULL)
+		writeXMLMetadata(fp_xmloutfile, infile, outfile);
 
 	return 0;
 }
@@ -362,6 +384,81 @@ void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
 
 		streampos += datasize;
 	}
+
+	return;
+}
+
+void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile) {
+	int i;
+	char *hasit;
+
+	fprintf(fp, "<?xml version='1.0' encoding='UTF-8'?>\n");
+	fprintf(fp, "<fileset>\n");
+
+	if(outfile != NULL)
+		fprintf(fp, "<flv name=\"%s\">\n", outfile);
+	else
+		fprintf(fp, "<flv name=\"%s\">\n", infile);
+
+	hasit = (flvmetadata.hasKeyframes > 0) ? "true" : "false";
+	fprintf(fp, "<hasKeyframes>%s</hasKeyframes>\n", hasit);		      
+
+	hasit = (flvmetadata.hasVideo > 0) ? "true" : "false";
+	fprintf(fp, "<hasVideo>%s</hasVideo>\n", hasit);		      
+
+	hasit = (flvmetadata.hasAudio > 0) ? "true" : "false";
+	fprintf(fp, "<hasAudio>%s</hasAudio>\n", hasit);		      
+
+	hasit = (flvmetadata.hasMetadata > 0) ? "true" : "false";
+	fprintf(fp, "<hasMetadata>%s</hasMetadata>\n", hasit);		      
+
+	hasit = (flvmetadata.hasCuePoints > 0) ? "true" : "false";
+	fprintf(fp, "<hasCuePoints>%s</hasCuePoints>\n", hasit);		      
+
+	hasit = (flvmetadata.canSeekToEnd > 0) ? "true" : "false";
+	fprintf(fp, "<canSeekToEnd>%s</canSeekToEnd>\n", hasit);		      
+
+	fprintf(fp, "<audiocodecid>%i</audiocodecid>\n", (int)flvmetadata.audiocodecid);		         		      
+	fprintf(fp, "<audiosamplerate>%i</audiosamplerate>\n", (int)flvmetadata.audiosamplerate);
+	fprintf(fp, "<audiodatarate>%i</audiodatarate>\n", (int)flvmetadata.audiodatarate);
+	fprintf(fp, "<audiosamplesize>%i</audiosamplesize>\n", (int)flvmetadata.audiosamplesize);
+	fprintf(fp, "<audiodelay>%.2f</audiodelay>\n", flvmetadata.audiodelay);
+	hasit = (flvmetadata.stereo > 0) ? "true" : "false";
+	fprintf(fp, "<stereo>%s</stereo>\n", hasit);		      
+
+	fprintf(fp, "<videocodecid>%i</videocodecid>\n", (int)flvmetadata.videocodecid);
+	fprintf(fp, "<framerate>%.2f</framerate>\n", flvmetadata.framerate);
+	fprintf(fp, "<videodatarate>%i</videodatarate>\n", (int)flvmetadata.videodatarate);
+	fprintf(fp, "<height>%i</height>\n", (int)flvmetadata.height);
+	fprintf(fp, "<width>%i</width>\n", (int)flvmetadata.width);
+
+	fprintf(fp, "<datasize>%i</datasize>\n", (int)flvmetadata.datasize);
+	fprintf(fp, "<audiosize>%i</audiosize>\n", (int)flvmetadata.audiosize);
+	fprintf(fp, "<videosize>%i</videosize>\n", (int)flvmetadata.videosize);
+	fprintf(fp, "<filesize>%i</filesize>\n", (int)flvmetadata.filesize);
+
+	fprintf(fp, "<lasttimestamp>%.2f</lasttimestamp>\n", flvmetadata.lasttimestamp);
+	fprintf(fp, "<lastvideoframetimestamp>%.2f</lastvideoframetimestamp>\n", flvmetadata.lastvideoframetimestamp);
+	fprintf(fp, "<lastkeyframetimestamp>%.2f</lastkeyframetimestamp>\n", flvmetadata.lastkeyframetimestamp);
+	fprintf(fp, "<lastkeyframelocation>%i</lastkeyframelocation>\n", (int)flvmetadata.lastkeyframelocation);
+
+	fprintf(fp, "<keyframes>\n");
+	fprintf(fp, "<times>\n");
+
+	for(i = 0; i < flvmetadata.keyframes; ++i)
+		fprintf(fp, "<value id=\"%i\">%.2f</value>\n", i, flvmetadata.times[i]);
+
+	fprintf(fp, "</times>\n");
+	fprintf(fp, "<filepositions>\n");
+
+	for(i = 0; i < flvmetadata.keyframes; ++i)
+		fprintf(fp, "<value id=\"%i\">%i</value>\n", i, (int)flvmetadata.filepositions[i]);
+
+	fprintf(fp, "</filepositions>\n");
+	fprintf(fp, "</keyframes>\n");
+	fprintf(fp, "<duration>%.2f</duration>\n", flvmetadata.duration);
+	fprintf(fp, "</flv>\n");
+	fprintf(fp, "</fileset>\n");
 
 	return;
 }
@@ -871,6 +968,8 @@ metadatapass:
 		goto metadatapass;
 	}
 
+	datasize += writeFLVScriptDataVariableArrayEnd(fp);
+
 	flvmetadata.metadatasize = datasize - sizeof(FLVTag_t);
 
 	datasize += writeFLVPreviousTagSize(fp, datasize);
@@ -1158,7 +1257,8 @@ void print_usage(void) {
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "SYNOPSIS\n");
-	fprintf(stderr, "\tyamdi -i input file -o output file [-c creator] [-h]\n");
+	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
+	fprintf(stderr, "\t      [-c creator] [-l] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -1168,9 +1268,11 @@ void print_usage(void) {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-i\tThe source FLV file.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "\t-o\tThe resulting FLV file with the metatags. If the\n");
-	fprintf(stderr, "\t\toutput file is '-' the FLV file will be written to\n");
-	fprintf(stderr, "\t\tstdout.\n");
+	fprintf(stderr, "\t-o\tThe resulting FLV file with the metatags. If the file\n");
+	fprintf(stderr, "\t\tname is '-' the output will be written to stdout.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-x\tA XML file with the resulting metadata information. If the\n");
+	fprintf(stderr, "\t\toutput file is ommited, only metadata will be generated.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");
 	fprintf(stderr, "\n");
@@ -1180,7 +1282,7 @@ void print_usage(void) {
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "COPYRIGHT\n");
-	fprintf(stderr, "\t(c) 2007 Ingo Oppermann\n");
+	fprintf(stderr, "\t(c) 2008 Ingo Oppermann\n");
 	fprintf(stderr, "\n");
 	return;
 }

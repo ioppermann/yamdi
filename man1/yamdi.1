@@ -1,0 +1,55 @@
+.\"                                      Hey, EMACS: -*- nroff -*-
+.\" First parameter, NAME, should be all caps
+.\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
+.\" other parameters are allowed: see man(7), man(1)
+.TH YAMDI 1 "April 27, 2008"
+.\" Please adjust this date whenever revising the manpage.
+.\"
+.\" Some roff macros, for reference:
+.\" .nh        disable hyphenation
+.\" .hy        enable hyphenation
+.ad l      left justify
+.\" .ad b      justify to both left and right margins
+.\" .nf        disable filling
+.\" .fi        enable filling
+.\" .br        insert line break
+.\" .sp <n>    insert n+1 empty lines
+.\" for manpage-specific macros, see man(7)
+.SH NAME
+yamdi \- yet another metadata injector (flv)
+.SH SYNOPSIS
+.B yamdi
+\-i input file [\-x xml file | \-o output file [\-x xml file]] [\-c creator] [\-l] [\-h]
+.SH DESCRIPTION
+yamdi stands for Yet Another MetaData Injector and is a metadata injector for FLV files. It adds the onMetaData event to your FLV files.
+.SH OPTIONS
+.TP
+.B \-i
+The source FLV file.
+.TP
+.B \-o
+The resulting FLV file with the metatags. If the output file is '-' the FLV file will be written to stdout.
+.TP
+.B \-x
+A XML file with the resulting metadata information. If the output file is ommited, only metadata will be generated.
+.TP
+.B \-c
+A string that will be written into the creator tag.
+.TP
+.B \-l
+Add the onLastSecond event.
+.TP
+.B \-h
+Show summary of options.
+.SH EXIT STATUS
+.B yamdi
+exits 0 on success, and >0 if an error occurs.
+
+.SH SEE ALSO
+.BR http://yamdi.sourceforge.net/
+.br
+.SH AUTHOR
+yamdi was written by Ingo Oppermann
+.PP
+This manual page was written by Todd Troxell <ttroxell@debian.org>,
+for the Debian project (but may be used by others).
