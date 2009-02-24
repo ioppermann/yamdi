@@ -58,7 +58,7 @@
 #define	FLV_VP6ALPHAVIDEOPACKET	5
 #define FLV_SCREENV2VIDEOPACKET	6
 
-#define YAMDI_VERSION	"1.0beta3"
+#define YAMDI_VERSION	"1.0"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -139,6 +139,7 @@ void readFLVSecondPass(char *flv, size_t streampos, size_t filesize);
 void readFLVH263VideoPacket(const unsigned char *h263);
 void readFLVScreenVideoPacket(const unsigned char *sv);
 void readFLVVP62VideoPacket(const unsigned char *vp62);
+void readFLVVP62AlphaVideoPacket(const unsigned char *vp62a);
 
 size_t writeFLVScriptDataValueArray(FILE *fp, const char *name, size_t len);
 size_t writeFLVScriptDataECMAArray(FILE *fp, const char *name, size_t len);
@@ -504,6 +505,7 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 						readFLVVP62VideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_VP6ALPHAVIDEOPACKET:
+						readFLVVP62AlphaVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_SCREENV2VIDEOPACKET:
 						readFLVScreenVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
@@ -618,6 +620,13 @@ void readFLVScreenVideoPacket(const unsigned char *sv) {
 void readFLVVP62VideoPacket(const unsigned char *vp62) {
 	flvmetadata.width = (double)(vp62[4] * 16 - (vp62[0] >> 4));
 	flvmetadata.height = (double)(vp62[3] * 16 - (vp62[0] & 0x0f));
+
+	return;
+}
+
+void readFLVVP62AlphaVideoPacket(const unsigned char *vp62a) {
+	flvmetadata.width = (double)(vp62a[7] * 16 - (vp62a[0] >> 4));
+	flvmetadata.height = (double)(vp62a[6] * 16 - (vp62a[0] & 0x0f));
 
 	return;
 }

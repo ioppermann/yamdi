@@ -1,3 +1,6 @@
+yamdi-1.0:
+   * [Add] Width and height detection for VP6 alpha video
+
 yamdi-1.0beta3:
    * [Add] Width and height detection for VP6 video (without
            alpha) [hephooey]
