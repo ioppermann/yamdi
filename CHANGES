@@ -1,3 +1,9 @@
+yamdi-1.0beta3:
+   * [Add] Width and height detection for VP6 video (without
+           alpha) [hephooey]
+   * [Add] More metadata: calculated framerate, videodatarate and
+           audiodatarate.
+
 yamdi-1.0beta2:
    * [Fix] The last video tag or audio tag has not been copied
    * [Add] If the video stream is Sorenson H.263, Screen Video or

@@ -58,7 +58,7 @@
 #define	FLV_VP6ALPHAVIDEOPACKET	5
 #define FLV_SCREENV2VIDEOPACKET	6
 
-#define YAMDI_VERSION	"1.0beta2"
+#define YAMDI_VERSION	"1.0beta3"
 
 #ifndef MAP_NOCORE
 	#define MAP_NOCORE	0
@@ -138,6 +138,7 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize);
 void readFLVSecondPass(char *flv, size_t streampos, size_t filesize);
 void readFLVH263VideoPacket(const unsigned char *h263);
 void readFLVScreenVideoPacket(const unsigned char *sv);
+void readFLVVP62VideoPacket(const unsigned char *vp62);
 
 size_t writeFLVScriptDataValueArray(FILE *fp, const char *name, size_t len);
 size_t writeFLVScriptDataECMAArray(FILE *fp, const char *name, size_t len);
@@ -253,9 +254,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	// mmap von infile erstellen
-	flv = NULL;
 	flv = mmap(NULL, filesize, PROT_READ, MAP_NOCORE | MAP_PRIVATE, fileno(fp_infile), 0);
-
 	if(flv == NULL) {
 		fprintf(stderr, "Couldn't load %s.\n", infile);
 		exit(1);
@@ -410,7 +409,8 @@ void readFLVSecondPass(char *flv, size_t streampos, size_t filesize) {
 }
 
 void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
-	size_t datasize;
+	size_t datasize, videosize = 0, audiosize = 0;
+	size_t videotags = 0, audiotags = 0;
 	FLVTag_t *flvtag;
 	FLVAudioData_t *flvaudio;
 	FLVVideoData_t *flvvideo;
@@ -431,6 +431,9 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 			flvmetadata.datasize += (double)datasize;
 			// datasize - PreviousTagSize
 			flvmetadata.audiosize += (double)(datasize - 4);
+
+			audiosize += FLV_UI24(flvtag->datasize);
+			audiotags++;
 
 			if(flvmetadata.hasAudio == 0) {
 				flvaudio = (FLVAudioData_t *)&flv[streampos + sizeof(FLVTag_t)];
@@ -479,6 +482,9 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 			// datasize - PreviousTagSize
 			flvmetadata.videosize += (double)(datasize - 4);
 
+			videosize += FLV_UI24(flvtag->datasize);
+			videotags++;
+
 			flvvideo = (FLVVideoData_t *)&flv[streampos + sizeof(FLVTag_t)];
 
 			if(flvmetadata.hasVideo == 0) {
@@ -495,6 +501,7 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 						readFLVScreenVideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_VP6VIDEOPACKET:
+						readFLVVP62VideoPacket(&flv[streampos + sizeof(FLVTag_t) + sizeof(FLVVideoData_t)]);
 						break;
 					case FLV_VP6ALPHAVIDEOPACKET:
 						break;
@@ -535,6 +542,18 @@ void readFLVFirstPass(char *flv, size_t streampos, size_t filesize) {
 			exit(1);
 		}
 	}
+
+	// Framerate
+	if(videotags != 0)
+		flvmetadata.framerate = (double)videotags / flvmetadata.duration;
+
+	// Videodatarate (kb/s)
+	if(videosize != 0)
+		flvmetadata.videodatarate = (double)(videosize * 8) / 1024.0 / flvmetadata.duration;
+
+	// Audiodatarate (kb/s)
+	if(audiosize != 0)
+		flvmetadata.audiodatarate = (double)(audiosize * 8) / 1024.0 / flvmetadata.duration;
 
 	return;
 }
@@ -592,6 +611,13 @@ void readFLVScreenVideoPacket(const unsigned char *sv) {
 
 	flvmetadata.width = (double)((sv[0] << 4) + sv[1]);
 	flvmetadata.height = (double)((sv[2] << 4) + sv[3]);
+
+	return;
+}
+
+void readFLVVP62VideoPacket(const unsigned char *vp62) {
+	flvmetadata.width = (double)(vp62[4] * 16 - (vp62[0] >> 4));
+	flvmetadata.height = (double)(vp62[3] * 16 - (vp62[0] & 0x0f));
 
 	return;
 }
@@ -702,6 +728,14 @@ metadatapass:
 			datasize += writeFLVScriptDataValueDouble(fp, "height", flvmetadata.height);
 			length++;
 		}
+
+		// framerate
+		datasize += writeFLVScriptDataValueDouble(fp, "framerate", flvmetadata.framerate);
+		length++;
+
+		// videodatarate
+		datasize += writeFLVScriptDataValueDouble(fp, "videodatarate", flvmetadata.videodatarate);
+		length++;
 	}
 
 	if(flvmetadata.hasAudio == 1) {
@@ -723,6 +757,10 @@ metadatapass:
 
 		// stereo
 		datasize += writeFLVScriptDataValueBool(fp, "stereo", flvmetadata.stereo);
+		length++;
+
+		// audiodatarate
+		datasize += writeFLVScriptDataValueDouble(fp, "audiodatarate", flvmetadata.audiodatarate);
 		length++;
 	}
 
