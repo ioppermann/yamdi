@@ -1,7 +1,7 @@
 /*
  * yamdi.c
  *
- * Copyright (c) 2007-2008, Ingo Oppermann
+ * Copyright (c) 2007-2009, Ingo Oppermann
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,7 @@
 	#include <windows.h>
 #else
 	#include <sys/mman.h>
+	#include <errno.h>
 #endif
 #include <sys/stat.h>
 #include <stdio.h>
@@ -305,6 +306,11 @@ int main(int argc, char *argv[]) {
 	// mmap von infile erstellen
 #ifndef __MINGW32__
 	flv = mmap(NULL, filesize, PROT_READ, MAP_NOCORE | MAP_PRIVATE, fileno(fp_infile), 0);
+	if(flv == MAP_FAILED) {
+		fprintf(stderr, "Couldn't load %s (%s).\n", infile, strerror(errno));
+		exit(1);
+	}
+
 #else
 	HANDLE h = NULL;
 	h = CreateFileMapping(fh_infile, NULL, PAGE_READONLY | SEC_COMMIT, 0, filesize,  NULL);
@@ -313,11 +319,11 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 	flv = MapViewOfFile(h, FILE_MAP_READ, 0, 0, filesize);
-#endif
 	if(flv == NULL) {
 		fprintf(stderr, "Couldn't load %s.\n", infile);
 		exit(1);
 	}
+#endif
 
 	if(strncmp(flv, "FLV", 3)) {
 		fprintf(stderr, "The input file is not a FLV.\n");
