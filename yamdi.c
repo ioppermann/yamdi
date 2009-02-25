@@ -810,6 +810,9 @@ void readFLVVP62VideoPacket(const unsigned char *vp62) {
 	flvmetadata.width = (double)(vp62[4] * 16 - (vp62[0] >> 4));
 	flvmetadata.height = (double)(vp62[3] * 16 - (vp62[0] & 0x0f));
 
+	if(flvmetadata.height <= 0.0)
+		flvmetadata.height = (double)(vp62[5] * 16 - (vp62[0] & 0x0f));
+
 	return;
 }
 
