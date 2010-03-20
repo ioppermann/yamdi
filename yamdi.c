@@ -176,6 +176,8 @@ void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize);
 void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile);
 void writeFLVHeader(FILE *fp);
 
+void storeFLVFromStdin(FILE *fp);
+
 void print_usage(void);
 
 int main(int argc, char *argv[]) {
@@ -183,8 +185,8 @@ int main(int argc, char *argv[]) {
 #ifdef __MINGW32__
 	HANDLE fh_infile = NULL;
 #endif
-	int c, lastsecond = 0, lastkeyframe = 0;
-	char *flv, *infile, *outfile, *xmloutfile, *creator;
+	int c, lastsecond = 0, lastkeyframe = 0, unlink_infile = 0;
+	char *flv, *infile, *outfile, *xmloutfile, *tempfile, *creator;
 	unsigned int i;
 	size_t filesize = 0, streampos, metadatasize;
 	struct stat sb;
@@ -195,75 +197,22 @@ int main(int argc, char *argv[]) {
 	infile = NULL;
 	outfile = NULL;
 	xmloutfile = NULL;
+	tempfile = NULL;
 	creator = NULL;
 
-	while((c = getopt(argc, argv, "i:o:x:c:lkh")) != -1) {
+	while((c = getopt(argc, argv, "i:o:x:t:c:lkh")) != -1) {
 		switch(c) {
 			case 'i':
-				if(infile == NULL) {
-					infile = optarg;
-
-					if(outfile != NULL) {
-						if(!strcmp(infile, outfile)) {
-							fprintf(stderr, "Input file and output file must not be the same.\n");
-							exit(1);
-						}
-					}
-
-					if(stat(infile, &sb) == -1) {
-						fprintf(stderr, "Couldn't stat on %s.\n", infile);
-						exit(1);
-					}
-
-					filesize = sb.st_size;
-
-#ifndef __MINGW32__
-					fp_infile = fopen(infile, "rb");
-#else
-					// Open infile with CreateFile() API
-					fh_infile = CreateFile(infile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-					// Meaningless type casting here. It is just used to pass the error checking codes.
-					fp_infile = (FILE *)fh_infile;
-#endif
-					if(fp_infile == NULL) {
-						fprintf(stderr, "Couldn't open %s.\n", infile);
-						exit(1);
-					}
-				}
-
+				infile = optarg;
 				break;
 			case 'o':
-				if(outfile == NULL) {
-					outfile = optarg;
-
-					if(infile != NULL) {
-						if(!strcmp(infile, outfile)) {
-							fprintf(stderr, "Input file and output file must not be the same.\n");
-							exit(1);
-						}
-					}
-
-					if(strcmp(outfile, "-")) {
-						fp_outfile = fopen(outfile, "wb");
-						if(fp_outfile == NULL) {
-							fprintf(stderr, "Couldn't open %s.\n", outfile);
-							exit(1);
-						}
-					}
-					else
-						fp_outfile = stdout;
-				}
+				outfile = optarg;
 				break;
 			case 'x':
-				if(xmloutfile == NULL) {
-					xmloutfile = optarg;
-		
-					fp_xmloutfile = fopen(xmloutfile, "wb");
-					if(fp_xmloutfile == NULL) {
-						fprintf(stderr, "Couldn't open %s.\n", outfile);
-						exit(1);
-					}
-				}
+				xmloutfile = optarg;
+				break;
+			case 't':
+				tempfile = optarg;
 				break;
 			case 'c':
 				creator = optarg;
@@ -303,7 +252,125 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	// mmap von infile erstellen
+	if(tempfile == NULL && !strcmp(infile, "-")) {
+		fprintf(stderr, "Please specify a temporary file. -h for help.\n");
+		exit(1);
+	}
+
+	// Check input file
+	if(!strcmp(infile, "-")) {		// Read from stdin
+		// Check the temporary file
+		if(outfile != NULL) {
+			if(!strcmp(tempfile, outfile)) {
+				fprintf(stderr, "The temporary file and the output file must not be the same.\n");
+				exit(1);
+			}
+		}
+
+		if(xmloutfile != NULL) {
+			if(!strcmp(tempfile, xmloutfile)) {
+				fprintf(stderr, "The temporary file and the XML output file must not be the same.\n");
+				exit(1);
+			}
+		}
+
+		// Open the temporary file
+		fp_infile = fopen(tempfile, "wb");
+		if(fp_infile == NULL) {
+			fprintf(stderr, "Couldn't open the tempfile %s.\n", tempfile);
+			exit(1);
+		}
+
+		// Store stdin to temporary file
+		storeFLVFromStdin(fp_infile);
+
+		// Close temporary file
+		fclose(fp_infile);
+
+		// Mimic normal input file, but don't forget to remove the temporary file
+		infile = tempfile;
+		unlink_infile = 1;
+	}
+	else {
+		if(outfile != NULL) {
+			if(!strcmp(infile, outfile)) {
+				fprintf(stderr, "The input file and the output file must not be the same.\n");
+				exit(1);
+			}
+		}
+
+		if(xmloutfile != NULL) {
+			if(!strcmp(infile, xmloutfile)) {
+				fprintf(stderr, "The input file and the XML output file must not be the same.\n");
+				exit(1);
+			}
+		}
+	}
+
+	// Get size of input file
+	if(stat(infile, &sb) == -1) {
+		fprintf(stderr, "Couldn't stat on %s.\n", infile);
+		exit(1);
+	}
+
+	filesize = sb.st_size;
+
+	// Open input file
+#ifndef __MINGW32__
+	fp_infile = fopen(infile, "rb");
+#else
+	// Open infile with CreateFile() API
+	fh_infile = CreateFile(infile, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	// Meaningless type casting here. It is just used to pass the error checking codes.
+	fp_infile = (FILE *)fh_infile;
+#endif
+	if(fp_infile == NULL) {
+		fprintf(stderr, "Couldn't open %s.\n", infile);
+		exit(1);
+	}
+
+	// Check output file
+	if(outfile != NULL) {
+		if(!strcmp(infile, outfile)) {
+			fprintf(stderr, "The input file and the output file must not be the same.\n");
+			exit(1);
+		}
+
+		if(strcmp(outfile, "-")) {
+			fp_outfile = fopen(outfile, "wb");
+			if(fp_outfile == NULL) {
+				fprintf(stderr, "Couldn't open %s.\n", outfile);
+				exit(1);
+			}
+		}
+		else
+			fp_outfile = stdout;
+	}
+
+	// Check XML output file
+	if(xmloutfile != NULL) {
+		if(!strcmp(infile, xmloutfile)) {
+			fprintf(stderr, "The input file and the XML output file must not be the same.\n");
+			exit(1);
+		}
+
+		if(!strcmp(outfile, xmloutfile)) {
+			fprintf(stderr, "The output file and the XML output file must not be the same.\n");
+			exit(1);
+		}
+
+		if(strcmp(xmloutfile, "-")) {
+			fp_xmloutfile = fopen(xmloutfile, "wb");
+			if(fp_xmloutfile == NULL) {
+				fprintf(stderr, "Couldn't open %s.\n", xmloutfile);
+				exit(1);
+			}
+		}
+		else
+			fp_xmloutfile = stdout;
+	}
+
+	// create mmap of input file
 #ifndef __MINGW32__
 	flv = mmap(NULL, filesize, PROT_READ, MAP_NOCORE | MAP_PRIVATE, fileno(fp_infile), 0);
 	if(flv == MAP_FAILED) {
@@ -325,6 +392,7 @@ int main(int argc, char *argv[]) {
 	}
 #endif
 
+	// Simple check if the filee is a flv file
 	if(strncmp(flv, "FLV", 3)) {
 		fprintf(stderr, "The input file is not a FLV.\n");
 		exit(1);
@@ -381,7 +449,31 @@ int main(int argc, char *argv[]) {
 	if(xmloutfile != NULL)
 		writeXMLMetadata(fp_xmloutfile, infile, outfile);
 
+	// Some cleanup
+	munmap(flv, filesize);
+	fclose(fp_infile);
+
+	// Remove the input file if it is the temporary file
+	if(unlink_infile == 1)
+		unlink(infile);
+
+	if(fp_outfile != NULL && fp_outfile != stdout)
+		fclose(fp_outfile);
+
+	if(fp_xmloutfile != NULL && fp_xmloutfile != stdout)
+		fclose(fp_xmloutfile);
+
 	return 0;
+}
+
+void storeFLVFromStdin(FILE *fp) {
+	char buf[4096];
+	size_t bytes;
+
+	while((bytes = fread(buf, 1 ,sizeof(buf), stdin)) > 0)
+		fwrite(buf, 1, bytes, fp);
+
+	return;
 }
 
 void writeFLV(FILE *fp, char *flv, size_t streampos, size_t filesize) {
@@ -1307,7 +1399,7 @@ void print_usage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-c creator] [-l] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-l] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -1315,13 +1407,18 @@ void print_usage(void) {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\tOptions:\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "\t-i\tThe source FLV file.\n");
+	fprintf(stderr, "\t-i\tThe source FLV file. If the file name is '-' the input\n");
+	fprintf(stderr, "\t\tfile will be read from stdin. Use the -t option to specify\n");
+	fprintf(stderr, "\t\ta temporary file.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-o\tThe resulting FLV file with the metatags. If the file\n");
 	fprintf(stderr, "\t\tname is '-' the output will be written to stdout.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-x\tAn XML file with the resulting metadata information. If the\n");
 	fprintf(stderr, "\t\toutput file is ommited, only metadata will be generated.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-t\tA temporary file to store the source FLV file in if the\n");
+	fprintf(stderr, "\t\tinput file is read fromstdin.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");
 	fprintf(stderr, "\n");
@@ -1331,7 +1428,7 @@ void print_usage(void) {
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "COPYRIGHT\n");
-	fprintf(stderr, "\t(c) 2008 Ingo Oppermann\n");
+	fprintf(stderr, "\t(c) 2010 Ingo Oppermann\n");
 	fprintf(stderr, "\n");
 	return;
 }
