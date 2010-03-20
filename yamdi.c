@@ -1418,7 +1418,7 @@ void print_usage(void) {
 	fprintf(stderr, "\t\toutput file is ommited, only metadata will be generated.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-t\tA temporary file to store the source FLV file in if the\n");
-	fprintf(stderr, "\t\tinput file is read fromstdin.\n");
+	fprintf(stderr, "\t\tinput file is read from stdin.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");
 	fprintf(stderr, "\n");
