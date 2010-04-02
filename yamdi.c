@@ -1123,8 +1123,8 @@ void readH264SPS(bitstream_t *bitstream) {
 	int cropTop, cropBottom;
 
 	if(frame_cropping_flag == 1) {
-		static const int subWidthC[4]= { 1, 2, 2, 1};
-		static const int subHeightC[4]= { 1, 2, 1, 1};
+		static const int subWidthC[4]= {1, 2, 2, 1};
+		static const int subHeightC[4]= {1, 2, 1, 1};
 
 		unsigned int cropUnitX, cropUnitY;
 
@@ -1160,8 +1160,8 @@ void readH264SPS(bitstream_t *bitstream) {
 	fprintf(stderr, "[AVC/H.264] width = %u\n", width);
 	fprintf(stderr, "[AVC/H.264] height = %u\n", height);
 
-	flvmetadata.width = width;
-	flvmetadata.height = height;
+	flvmetadata.width = (double)width;
+	flvmetadata.height = (double)height;
 
 	return;
 }
