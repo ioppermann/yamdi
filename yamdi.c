@@ -450,8 +450,14 @@ int main(int argc, char *argv[]) {
 		writeXMLMetadata(fp_xmloutfile, infile, outfile);
 
 	// Some cleanup
+#ifndef __MINGW32__
 	munmap(flv, filesize);
 	fclose(fp_infile);
+#else
+	UnmapViewOfFile(flv);
+	CloseHandle(h);
+	CloseHandle(fh_infile);
+#endif
 
 	// Remove the input file if it is the temporary file
 	if(unlink_infile == 1)
