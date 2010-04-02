@@ -1007,16 +1007,17 @@ void readH264SPS(bitstream_t *bitstream) {
 	int i;
 	unsigned int profile_idc;
 	unsigned int pic_order_cnt_type, num_ref_frames_in_pic_order_cnt_cycle = 0;
+	unsigned int chroma_format_idc = 1, separate_color_plane_flag = 0;
 
-	unsigned int chroma_format_idc = 1;
 	unsigned int pic_width_in_mbs_minus1, pic_height_in_map_units_minus1;
 	unsigned int frame_mbs_only_flag;
 	unsigned int frame_cropping_flag;
 	unsigned int frame_crop_left_offset = 0, frame_crop_right_offset = 0, frame_crop_top_offset = 0, frame_crop_bottom_offset = 0;
+
+	unsigned int chromaArrayType;
 /*
 	We need these values from SPS
 
-	chroma_format_idc (Default: 1)
 	pic_width_in_mbs_minus1
 	pic_height_in_map_units_minus1
 	frame_mbs_only_flag
@@ -1050,7 +1051,12 @@ void readH264SPS(bitstream_t *bitstream) {
 		chroma_format_idc = readCodedUE(bitstream);
 		fprintf(stderr, "\t\tchroma_format_idc = %u\n", chroma_format_idc);
 
-		fprintf(stderr, "[unimplemented] profile_idc = %u\n", profile_idc);
+		if(chroma_format_idc == 3) {
+			separate_color_plane_flag = readCodedU(bitstream, 1);
+			fprintf(stderr, "\t\tseparate_color_plane_flag = %u\n", separate_color_plane_flag);
+		}
+
+		fprintf(stderr, "[AVC/H.264] unimplemented profile_idc = %u\n", profile_idc);
 		return;
 	}
 
@@ -1113,33 +1119,50 @@ void readH264SPS(bitstream_t *bitstream) {
 	unsigned int width = picWidthInMbs * MB_BLOCK_SIZE;
 	unsigned int height = frameHeightInMbs * MB_BLOCK_SIZE;
 
+	int cropLeft, cropRight;
+	int cropTop, cropBottom;
+
+	if(frame_cropping_flag == 1) {
+		static const int subWidthC[4]= { 1, 2, 2, 1};
+		static const int subHeightC[4]= { 1, 2, 1, 1};
+
+		unsigned int cropUnitX, cropUnitY;
+
+		if(separate_color_plane_flag == 1)
+			chromaArrayType = chroma_format_idc;
+		else
+			chromaArrayType = 0;
+
+		if(chromaArrayType == 0) {
+			cropUnitX = 1;
+			cropUnitY = 2 - frame_mbs_only_flag;
+		}
+		else {
+			cropUnitX = subWidthC[chroma_format_idc];
+			cropUnitY = subHeightC[chroma_format_idc] * (2 - frame_mbs_only_flag);
+		}
+
+		cropLeft = cropUnitX * frame_crop_left_offset;
+		cropRight = cropUnitX * frame_crop_right_offset;
+		cropTop = cropUnitY * frame_crop_top_offset;
+		cropBottom = cropUnitY * frame_crop_bottom_offset;
+	}
+	else {
+		cropLeft = 0;
+		cropRight = 0;
+		cropTop = 0;
+		cropBottom = 0;
+	}
+
+	width = width - cropLeft - cropRight;
+	height = height - cropTop - cropBottom;
+
 	fprintf(stderr, "[AVC/H.264] width = %u\n", width);
 	fprintf(stderr, "[AVC/H.264] height = %u\n", height);
-/*
-	cropping may happen! see decoder/parset.c, InterpretSPS(), reset_format_info(), activate_sps()
 
-static const int SubWidthC  [4]= { 1, 2, 2, 1};
-  static const int SubHeightC [4]= { 1, 2, 1, 1};
+	flvmetadata.width = width;
+	flvmetadata.height = height;
 
-  int crop_left, crop_right;
-  int crop_top, crop_bottom;
-
-	// cropping for luma
-  if (sps->frame_cropping_flag)
-  {
-    crop_left   = SubWidthC [sps->chroma_format_idc] * sps->frame_cropping_rect_left_offset;
-    crop_right  = SubWidthC [sps->chroma_format_idc] * sps->frame_cropping_rect_right_offset;
-    crop_top    = SubHeightC[sps->chroma_format_idc] * ( 2 - sps->frame_mbs_only_flag ) *  sps->frame_cropping_rect_top_offset;
-    crop_bottom = SubHeightC[sps->chroma_format_idc] * ( 2 - sps->frame_mbs_only_flag ) *  sps->frame_cropping_rect_bottom_offset;
-  }
-  else
-  {
-    crop_left = crop_right = crop_top = crop_bottom = 0;
-  }
-
-  source->width[0] = p_Vid->width - crop_left - crop_right;
-  source->height[0] = p_Vid->height - crop_top - crop_bottom;
-*/
 	return;
 }
 
@@ -1156,8 +1179,6 @@ unsigned int readCodedUE(bitstream_t *bitstream) {
 
 	for(bit = 0; bit == 0; leadingZeroBits++)
 		bit = readBit(bitstream);
-
-	fprintf(stderr, "[expgolomb] leadingZeroBits = %d\n", leadingZeroBits);
 
 	codeNum = ((1 << leadingZeroBits) - 1 + (unsigned int)readBits(bitstream, leadingZeroBits));
 
