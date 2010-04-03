@@ -1,3 +1,7 @@
+yamdi-1.5:
+   * [Add] AVC/H.264 support
+   * [Add] Input file can be read from stdin
+
 yamdi-1.4:
    * [Fix] The onLastSecond event did not have the correct timestamp
    * [Add] Source code compatible with Win32 (MinGW32) [sfyang]
