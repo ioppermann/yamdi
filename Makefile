@@ -3,7 +3,7 @@
 CC=gcc
 CFLAGS=-O2 -Wall
 
-yamdi: yamdi.c
+yamdi: yamdi.c Makefile
 	$(CC) $(CFLAGS) yamdi.c -o yamdi
 
 clean: yamdi
