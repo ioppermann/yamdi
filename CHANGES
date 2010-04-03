@@ -1,4 +1,6 @@
 yamdi-1.5:
+   * [Fix] Segfault on empty files under *nix [zas_]
+   * [Fix] VP62 occasional zero height [xtat]
    * [Add] AVC/H.264 support
    * [Add] Input file can be read from stdin
 
