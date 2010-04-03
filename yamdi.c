@@ -1158,7 +1158,7 @@ void readH264SPS(bitstream_t *bitstream) {
 	int cropTop, cropBottom;
 
 	if(frame_cropping_flag == 1) {
-		// See table 6-1
+		// See 14496-10, Table 6-1
 		int subWidthC[4] = {1, 2, 2, 1};
 		int subHeightC[4] = {1, 2, 1, 1};
 
