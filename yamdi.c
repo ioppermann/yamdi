@@ -1004,7 +1004,7 @@ void readH264NALUnit(unsigned char *nalu, int length) {
 }
 
 void readH264SPS(bitstream_t *bitstream) {
-	int i;
+	int i, j;
 	unsigned int profile_idc;
 	unsigned int pic_order_cnt_type, num_ref_frames_in_pic_order_cnt_cycle = 0;
 	unsigned int chroma_format_idc = 1, separate_color_plane_flag = 0;
@@ -1056,8 +1056,36 @@ void readH264SPS(bitstream_t *bitstream) {
 			fprintf(stderr, "\t\tseparate_color_plane_flag = %u\n", separate_color_plane_flag);
 		}
 
-		fprintf(stderr, "[AVC/H.264] unimplemented profile_idc = %u\n", profile_idc);
-		return;
+		fprintf(stderr, "\t\tbit_depth_luma_minus8 = %u\n", readCodedUE(bitstream));
+		fprintf(stderr, "\t\tbit_depth_chroma_minus8 = %u\n", readCodedUE(bitstream));
+		fprintf(stderr, "\t\tqpprime_y_zero_transform_bypass_flag = %u\n", readCodedU(bitstream, 1));
+		unsigned int seq_scaling_matrix_present_flag = readCodedU(bitstream, 1);
+		fprintf(stderr, "\t\tseq_scaling_matrix_present_flag = %u\n", seq_scaling_matrix_present_flag);
+
+		if(seq_scaling_matrix_present_flag == 1) {
+			int sizeOfScalingList, delta_scale, lastScale, nextScale;
+
+			int seq_scaling_matrix_count = (chroma_format_idc != 3) ? 8 : 12;
+			for(i = 0; i < seq_scaling_matrix_count; i++) {
+				unsigned int seq_scaling_list_present_flag = readCodedU(bitstream, 1);
+				fprintf(stderr, "\t\tseq_scaling_list_present_flag[%d] = %u\n", i, seq_scaling_list_present_flag);
+
+				if(seq_scaling_list_present_flag == 1) {
+					sizeOfScalingList = (i < 6) ? 16 : 64;
+					lastScale = nextScale = 8;
+					for(j = 0; j < sizeOfScalingList; j++) {
+						if(nextScale != 0) {
+							delta_scale = readCodedSE(bitstream);
+							fprintf(stderr, "\t\tdelta_scale = %d\n", delta_scale);
+
+							nextScale = (lastScale + delta_scale + 256) % 256;
+						}
+
+						lastScale = (nextScale == 0) ? lastScale : nextScale;
+					}
+				}
+			}
+		}
 	}
 
 	fprintf(stderr, "\t\tlog2_max_frame_num_minus4 = %u\n", readCodedUE(bitstream));
