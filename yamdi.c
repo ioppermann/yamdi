@@ -190,9 +190,9 @@ void storeFLVFromStdin(FILE *fp);
 void readH264NALUnit(unsigned char *nalu, int length);
 void readH264SPS(bitstream_t *bitstream);
 
-unsigned int readCodedU(bitstream_t *bitstream, int nbits);
-unsigned int readCodedUE(bitstream_t *bitstream);
-int readCodedSE(bitstream_t *bitstream);
+unsigned int readCodedU(bitstream_t *bitstream, int nbits, const char *name);
+unsigned int readCodedUE(bitstream_t *bitstream, const char *name);
+int readCodedSE(bitstream_t *bitstream, const char *name);
 
 int readBits(bitstream_t *bitstream, int nbits);
 int readBit(bitstream_t *bitstream);
@@ -913,44 +913,54 @@ void readFLVH263VideoPacket(const unsigned char *h263) {
 
 void readFLVH264VideoPacket(const unsigned char *h264) {
 	int avcpackettype = h264[0];
-	int i, length, offset, nSPS, nPPS;
+	int i, length, offset, nSPS;
 	unsigned char *avcc;
 
-	fprintf(stderr, "AVCPacketType %d\n", avcpackettype);
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] AVCPacketType = %d\n", avcpackettype);
+#endif
 
 	if(avcpackettype == 0) {	// AVCDecoderConfigurationRecord (14496-15, 5.2.4.1.1)
 		avcc = (unsigned char *)&h264[4];
 
-		fprintf(stderr, "configurationVersion = %d\n", avcc[0]);
-		fprintf(stderr, "AVCProfileIndication = %d\n", avcc[1]);
-		fprintf(stderr, "profile_compatibility = %d\n", avcc[2]);
-		fprintf(stderr, "AVCLevelIndication = %d\n", avcc[3]);
-		fprintf(stderr, "lengthSizeMinusOne = %d\n", avcc[4] & 0x3);
-
 		nSPS = avcc[5] & 0x1f;
-		fprintf(stderr, "numOfSequenceParameterSets = %d\n", nSPS);
+
+#ifdef DEBUG
+		fprintf(stderr, "[AVC/H.264] AVCDecoderConfigurationRecord\n");
+		fprintf(stderr, "[AVC/H.264] configurationVersion = %d\n", avcc[0]);
+		fprintf(stderr, "[AVC/H.264] AVCProfileIndication = %d\n", avcc[1]);
+		fprintf(stderr, "[AVC/H.264] profile_compatibility = %d\n", avcc[2]);
+		fprintf(stderr, "[AVC/H.264] AVCLevelIndication = %d\n", avcc[3]);
+		fprintf(stderr, "[AVC/H.264] lengthSizeMinusOne = %d\n", avcc[4] & 0x3);
+		fprintf(stderr, "[AVC/H.264] numOfSequenceParameterSets = %d\n", nSPS);
+#endif
 
 		offset = 6;
 		for(i = 0; i < nSPS; i++) {
 			length = (avcc[offset] << 8) + avcc[offset + 1];
-			fprintf(stderr, "\tsequenceParameterSetLength = %d bit\n", 8 * length);
-
+#ifdef DEBUG
+			fprintf(stderr, "[AVC/H.264]\tsequenceParameterSetLength = %d bit\n", 8 * length);
+#endif
 			readH264NALUnit(&avcc[offset + 2], length);
 
 			offset += (2 + length);
 		}
 
-		nPPS = avcc[offset++];
+		// There would be some Picture Parameter Sets, but we don't need them. Bail out.
+/*
+		int nPPS = avcc[offset++];
 		fprintf(stderr, "numOfPictureParameterSets = %d\n", nPPS);
 
 		for(i = 0; i < nPPS; i++) {
 			length = (avcc[offset] << 8) + avcc[offset + 1];
-			fprintf(stderr, "\tpictureParameterSetLength = %d bit\n", 8 * length);
-
+#ifdef DEBUG
+			fprintf(stderr, "[AVC/H.264]\tpictureParameterSetLength = %d bit\n", 8 * length);
+#endif
 			readH264NALUnit(&avcc[offset + 2], length);
 
 			offset += (2 + length);
 		}
+*/
 	}
 
 	return;
@@ -962,15 +972,16 @@ void readH264NALUnit(unsigned char *nalu, int length) {
 	bitstream_t bitstream;
 
 	// See 14496-10, 7.3.1
-
-	fprintf(stderr, "\tNALU Header: %02x\n", nalu[0]);
-	fprintf(stderr, "\t\tforbidden_zero_bit = %d\n", (nalu[0] >> 7) & 0x1);
-	fprintf(stderr, "\t\tnal_ref_idc = %d\n", (nalu[0] >> 5) & 0x3);
-	fprintf(stderr, "\t\tnal_unit_type = %d\n", nalu[0] & 0x1f);
-	fprintf(stderr, "\tRBSP: ");
+#ifdef DEBUG
+	fprintf(stderr, "[AVC/H.264]\tNALU Header: %02x\n", nalu[0]);
+	fprintf(stderr, "[AVC/H.264]\t\tforbidden_zero_bit = %d\n", (nalu[0] >> 7) & 0x1);
+	fprintf(stderr, "[AVC/H.264]\t\tnal_ref_idc = %d\n", (nalu[0] >> 5) & 0x3);
+	fprintf(stderr, "[AVC/H.264]\t\tnal_unit_type = %d\n", nalu[0] & 0x1f);
+	fprintf(stderr, "[AVC/H.264]\tRBSP: ");
 	for(i = 1; i < length; i++)
 		fprintf(stderr, "%02x ", nalu[i]);
 	fprintf(stderr, "\n");
+#endif
 
 	nal_unit_type = nalu[0] & 0x1f;
 
@@ -996,6 +1007,13 @@ void readH264NALUnit(unsigned char *nalu, int length) {
 	bitstream.byte = 0;
 	bitstream.bit = 0;
 
+#ifdef DEBUG
+	fprintf(stderr, "[AVC/H.264]\tSODB: ");
+	for(i = 0; i < bitstream.length; i++)
+		fprintf(stderr, "%02x ", bitstream.bytes[i]);
+	fprintf(stderr, "\n");
+#endif
+
 	readH264SPS(&bitstream);
 
 	free(bitstream.bytes);
@@ -1006,7 +1024,6 @@ void readH264NALUnit(unsigned char *nalu, int length) {
 void readH264SPS(bitstream_t *bitstream) {
 	int i, j;
 	unsigned int profile_idc;
-	unsigned int pic_order_cnt_type, num_ref_frames_in_pic_order_cnt_cycle = 0;
 	unsigned int chroma_format_idc = 1, separate_color_plane_flag = 0;
 
 	unsigned int pic_width_in_mbs_minus1, pic_height_in_map_units_minus1;
@@ -1018,6 +1035,8 @@ void readH264SPS(bitstream_t *bitstream) {
 /*
 	We need these values from SPS
 
+	chroma_format_idc
+	separate_color_plane_flag
 	pic_width_in_mbs_minus1
 	pic_height_in_map_units_minus1
 	frame_mbs_only_flag
@@ -1028,17 +1047,14 @@ void readH264SPS(bitstream_t *bitstream) {
 	frame_crop_bottom_offset
 */
 
-	fprintf(stderr, "\tParse SPS\n");
-
-	profile_idc = readCodedU(bitstream, 8);
-	fprintf(stderr, "\t\tprofile_idc = %u\n", profile_idc);
-	fprintf(stderr, "\t\tconstraint_set0_flag = %u\n", readCodedU(bitstream, 1));
-	fprintf(stderr, "\t\tconstraint_set1_flag = %u\n", readCodedU(bitstream, 1));
-	fprintf(stderr, "\t\tconstraint_set2_flag = %u\n", readCodedU(bitstream, 1));
-	fprintf(stderr, "\t\tconstraint_set3_flag = %u\n", readCodedU(bitstream, 1));
-	fprintf(stderr, "\t\treserved_zero_4bits = %u\n", readCodedU(bitstream, 4));
-	fprintf(stderr, "\t\tlevel_idc = %u\n", readCodedU(bitstream, 8));
-	fprintf(stderr, "\t\tseq_parameter_set_id = %u\n", readCodedUE(bitstream));
+	profile_idc = readCodedU(bitstream, 8, "profile_idc");
+	readCodedU(bitstream, 1, "constraint_set0_flag");
+	readCodedU(bitstream, 1, "constraint_set1_flag");
+	readCodedU(bitstream, 1, "constraint_set2_flag");
+	readCodedU(bitstream, 1, "constraint_set3_flag");
+	readCodedU(bitstream, 4, "reserved_zero_4bits");
+	readCodedU(bitstream, 8, "level_idc");
+	readCodedUE(bitstream, "seq_parameter_set_id");
 
 	if(
 		profile_idc == 100 ||
@@ -1048,35 +1064,30 @@ void readH264SPS(bitstream_t *bitstream) {
 		profile_idc == 44 ||
 		profile_idc == 83 ||
 		profile_idc == 86) {
-		chroma_format_idc = readCodedUE(bitstream);
-		fprintf(stderr, "\t\tchroma_format_idc = %u\n", chroma_format_idc);
+		chroma_format_idc = readCodedUE(bitstream, "chroma_format_idc");
 
-		if(chroma_format_idc == 3) {
-			separate_color_plane_flag = readCodedU(bitstream, 1);
-			fprintf(stderr, "\t\tseparate_color_plane_flag = %u\n", separate_color_plane_flag);
-		}
+		if(chroma_format_idc == 3)
+			separate_color_plane_flag = readCodedU(bitstream, 1, "separate_color_plane_flag");
 
-		fprintf(stderr, "\t\tbit_depth_luma_minus8 = %u\n", readCodedUE(bitstream));
-		fprintf(stderr, "\t\tbit_depth_chroma_minus8 = %u\n", readCodedUE(bitstream));
-		fprintf(stderr, "\t\tqpprime_y_zero_transform_bypass_flag = %u\n", readCodedU(bitstream, 1));
-		unsigned int seq_scaling_matrix_present_flag = readCodedU(bitstream, 1);
-		fprintf(stderr, "\t\tseq_scaling_matrix_present_flag = %u\n", seq_scaling_matrix_present_flag);
+		readCodedUE(bitstream, "bit_depth_luma_minus8");
+		readCodedUE(bitstream, "bit_depth_chroma_minus8");
+		readCodedU(bitstream, 1, "qpprime_y_zero_transform_bypass_flag");
 
+		unsigned int seq_scaling_matrix_present_flag = readCodedU(bitstream, 1, "seq_scaling_matrix_present_flag");
 		if(seq_scaling_matrix_present_flag == 1) {
 			int sizeOfScalingList, delta_scale, lastScale, nextScale;
 
 			int seq_scaling_matrix_count = (chroma_format_idc != 3) ? 8 : 12;
+			unsigned int seq_scaling_list_present_flag;
 			for(i = 0; i < seq_scaling_matrix_count; i++) {
-				unsigned int seq_scaling_list_present_flag = readCodedU(bitstream, 1);
-				fprintf(stderr, "\t\tseq_scaling_list_present_flag[%d] = %u\n", i, seq_scaling_list_present_flag);
+				seq_scaling_list_present_flag = readCodedU(bitstream, 1, "seq_scaling_list_present_flag");
 
 				if(seq_scaling_list_present_flag == 1) {
 					sizeOfScalingList = (i < 6) ? 16 : 64;
 					lastScale = nextScale = 8;
 					for(j = 0; j < sizeOfScalingList; j++) {
 						if(nextScale != 0) {
-							delta_scale = readCodedSE(bitstream);
-							fprintf(stderr, "\t\tdelta_scale = %d\n", delta_scale);
+							delta_scale = readCodedSE(bitstream, "delta_scale");
 
 							nextScale = (lastScale + delta_scale + 256) % 256;
 						}
@@ -1088,53 +1099,44 @@ void readH264SPS(bitstream_t *bitstream) {
 		}
 	}
 
-	fprintf(stderr, "\t\tlog2_max_frame_num_minus4 = %u\n", readCodedUE(bitstream));
-	pic_order_cnt_type = readCodedUE(bitstream);
-	fprintf(stderr, "\t\tpic_order_cnt_type = %u\n", pic_order_cnt_type);
+	readCodedUE(bitstream, "log2_max_frame_num_minus4");
+	unsigned int pic_order_cnt_type = readCodedUE(bitstream, "pic_order_cnt_type");
 
-	if(pic_order_cnt_type == 0) {
-		fprintf(stderr, "\t\tlog2_max_pic_order_cnt_lsb_minus4 = %u\n", readCodedUE(bitstream));
-	}
-	else if(pic_order_cnt_type == 1) {
-		fprintf(stderr, "\t\tdelta_pic_order_always_zero_flag = %u\n", readCodedU(bitstream, 1));
-		fprintf(stderr, "\t\toffset_for_non_ref_pic = %d\n", readCodedSE(bitstream));
-		fprintf(stderr, "\t\toffset_for_top_to_bottom_field = %d\n", readCodedSE(bitstream));
-		num_ref_frames_in_pic_order_cnt_cycle = readCodedUE(bitstream);
-		fprintf(stderr, "\t\tnum_ref_frames_in_pic_order_cnt_cycle = %u\n", num_ref_frames_in_pic_order_cnt_cycle);
+	if(pic_order_cnt_type == 1) {
+		readCodedU(bitstream, 1, "delta_pic_order_always_zero_flag");
+		readCodedSE(bitstream, "offset_for_non_ref_pic");
+		readCodedSE(bitstream, "offset_for_top_to_bottom_field");
 
+		unsigned int num_ref_frames_in_pic_order_cnt_cycle = readCodedUE(bitstream, "num_ref_frames_in_pic_order_cnt_cycle");
 		for(i = 0; i < num_ref_frames_in_pic_order_cnt_cycle; i++)
-			fprintf(stderr, "\t\toffset_for_ref_frame[%d] = %d\n", i, readCodedSE(bitstream));
+			readCodedSE(bitstream, "offset_for_ref_frame");
 	}
+	else if(pic_order_cnt_type == 0)
+		readCodedUE(bitstream, "log2_max_pic_order_cnt_lsb_minus4");
 
-	fprintf(stderr, "\t\tmax_num_ref_frames = %u\n", readCodedUE(bitstream));
-	fprintf(stderr, "\t\tgaps_in_frame_num_value_allowed_flag = %u\n", readCodedU(bitstream, 1));
+	readCodedUE(bitstream, "max_num_ref_frames");
+	readCodedU(bitstream, 1, "gaps_in_frame_num_value_allowed_flag");
 
-	pic_width_in_mbs_minus1 = readCodedUE(bitstream);
-	fprintf(stderr, "\t\tpic_width_in_mbs_minus1 = %u\n", pic_width_in_mbs_minus1);
-	pic_height_in_map_units_minus1 = readCodedUE(bitstream);
-	fprintf(stderr, "\t\tpic_height_in_map_units_minus1 = %u\n", pic_height_in_map_units_minus1);
+	pic_width_in_mbs_minus1 = readCodedUE(bitstream, "pic_width_in_mbs_minus1");
+	pic_height_in_map_units_minus1 = readCodedUE(bitstream, "pic_height_in_map_units_minus1");
 
-	frame_mbs_only_flag = readCodedU(bitstream, 1);
-	fprintf(stderr, "\t\tframe_mbs_only_flag = %u\n", frame_mbs_only_flag);
+	frame_mbs_only_flag = readCodedU(bitstream, 1, "frame_mbs_only_flag");
 	if(frame_mbs_only_flag == 0)
-		fprintf(stderr, "\t\tmb_adaptive_frame_field_flag = %u\n", readCodedU(bitstream, 1));
+		readCodedU(bitstream, 1, "mb_adaptive_frame_field_flag");
 
-	fprintf(stderr, "\t\tdirect_8x8_inference_flag = %u\n", readCodedU(bitstream, 1));
+	readCodedU(bitstream, 1, "direct_8x8_inference_flag");
 
-	frame_cropping_flag = readCodedU(bitstream, 1);
-	fprintf(stderr, "\t\tframe_cropping_flag = %u\n", frame_cropping_flag);
+	frame_cropping_flag = readCodedU(bitstream, 1, "frame_cropping_flag");
 	if(frame_cropping_flag == 1) {
-		frame_crop_left_offset = readCodedUE(bitstream);
-		fprintf(stderr, "\t\tframe_crop_left_offset = %u\n", frame_crop_left_offset);
-		frame_crop_right_offset = readCodedUE(bitstream);
-		fprintf(stderr, "\t\tframe_crop_right_offset = %u\n", frame_crop_right_offset);
-		frame_crop_top_offset = readCodedUE(bitstream);
-		fprintf(stderr, "\t\tframe_crop_top_offset = %u\n", frame_crop_top_offset);
-		frame_crop_bottom_offset = readCodedUE(bitstream);
-		fprintf(stderr, "\t\tframe_crop_bottom_offset = %u\n", frame_crop_bottom_offset);
+		frame_crop_left_offset = readCodedUE(bitstream, "frame_crop_left_offset");
+		frame_crop_right_offset = readCodedUE(bitstream, "frame_crop_right_offset");
+		frame_crop_top_offset = readCodedUE(bitstream, "frame_crop_top_offset");
+		frame_crop_bottom_offset = readCodedUE(bitstream, "frame_crop_bottom_offset");
 	}
 
-	fprintf(stderr, "\t\tvui_parameters_present_flag = %u\n", readCodedU(bitstream, 1));
+	readCodedU(bitstream, 1, "vui_parameters_present_flag");
+
+	// and so on ... VUI is not interesting for us. We have everything we need.
 
 	// Now we have enough information to compute the width and height of this video stream
 
@@ -1142,21 +1144,27 @@ void readH264SPS(bitstream_t *bitstream) {
 	unsigned int picHeightInMapUnits = (pic_height_in_map_units_minus1 + 1);
 	unsigned int frameHeightInMbs = (2 - frame_mbs_only_flag) * picHeightInMapUnits;
 
-#define MB_BLOCK_SIZE	16
+	unsigned int width = picWidthInMbs * 16;
+	unsigned int height = frameHeightInMbs * 16;
 
-	unsigned int width = picWidthInMbs * MB_BLOCK_SIZE;
-	unsigned int height = frameHeightInMbs * MB_BLOCK_SIZE;
+#ifdef DEBUG
+	fprintf(stderr, "[AVC/H.264] width = %u (pre crop)\n", width);
+	fprintf(stderr, "[AVC/H.264] height = %u (pre crop)\n", height);
+#endif
+
+	// Cropping
 
 	int cropLeft, cropRight;
 	int cropTop, cropBottom;
 
 	if(frame_cropping_flag == 1) {
-		static const int subWidthC[4]= {1, 2, 2, 1};
-		static const int subHeightC[4]= {1, 2, 1, 1};
+		// See table 6-1
+		int subWidthC[4] = {1, 2, 2, 1};
+		int subHeightC[4] = {1, 2, 1, 1};
 
 		unsigned int cropUnitX, cropUnitY;
 
-		if(separate_color_plane_flag == 1)
+		if(separate_color_plane_flag == 0)
 			chromaArrayType = chroma_format_idc;
 		else
 			chromaArrayType = 0;
@@ -1185,8 +1193,10 @@ void readH264SPS(bitstream_t *bitstream) {
 	width = width - cropLeft - cropRight;
 	height = height - cropTop - cropBottom;
 
+#ifdef DEBUG
 	fprintf(stderr, "[AVC/H.264] width = %u\n", width);
 	fprintf(stderr, "[AVC/H.264] height = %u\n", height);
+#endif
 
 	flvmetadata.width = (double)width;
 	flvmetadata.height = (double)height;
@@ -1194,12 +1204,19 @@ void readH264SPS(bitstream_t *bitstream) {
 	return;
 }
 
-unsigned int readCodedU(bitstream_t *bitstream, int nbits) {
+unsigned int readCodedU(bitstream_t *bitstream, int nbits, const char *name) {
 	// unsigned integer with n bits
-	return (unsigned int)readBits(bitstream, nbits);
+	unsigned int bits = (unsigned int)readBits(bitstream, nbits);
+
+#ifdef DEBUG
+	if(name != NULL)
+		fprintf(stderr, "[AVC/H.264]\t\t%s = %u\n", name, bits);
+#endif
+
+	return bits;
 }
 
-unsigned int readCodedUE(bitstream_t *bitstream) {
+unsigned int readCodedUE(bitstream_t *bitstream, const char *name) {
 	// unsigned integer Exp-Golomb coded (see 14496-10, 9.1)
 	int leadingZeroBits = -1;
 	int bit;
@@ -1210,15 +1227,20 @@ unsigned int readCodedUE(bitstream_t *bitstream) {
 
 	codeNum = ((1 << leadingZeroBits) - 1 + (unsigned int)readBits(bitstream, leadingZeroBits));
 
+#ifdef DEBUG
+	if(name != NULL)
+		fprintf(stderr, "[AVC/H.264]\t\t%s = %u\n", name, codeNum);
+#endif
+
 	return codeNum;
 }
 
-int readCodedSE(bitstream_t *bitstream) {
+int readCodedSE(bitstream_t *bitstream, const char *name) {
 	// signed integer Exp-Golomb coded (see 14496-10, 9.1 and 9.1.1)
 	unsigned int codeNum;
 	int codeNumSigned, sign;
 
-	codeNum = readCodedUE(bitstream);
+	codeNum = readCodedUE(bitstream, NULL);
 
 	sign = (codeNum % 2) + 1;
 	codeNumSigned = codeNum >> 1;
@@ -1226,6 +1248,11 @@ int readCodedSE(bitstream_t *bitstream) {
 		codeNumSigned++;
 	else
 		codeNumSigned *= -1;
+
+#ifdef DEBUG
+	if(name != NULL)
+		fprintf(stderr, "[AVC/H.264]\t\t%s = %d\n", name, codeNumSigned);
+#endif
 
 	return codeNumSigned;
 }
