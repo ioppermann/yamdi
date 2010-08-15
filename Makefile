@@ -10,4 +10,4 @@ clean: yamdi
 	rm -f yamdi
 
 install: yamdi
-	install $(INSTALL_FLAGS) -m 4755 -o root yamdi $(DESTDIR)/usr/bin
+	install -m 0755 -o root yamdi /usr/local/bin

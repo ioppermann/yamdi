@@ -1,3 +1,6 @@
+yamdi-1.6:
+   * [Fix] Large file support
+
 yamdi-1.5:
    * [Fix] Segfault on empty files under *nix [zas_]
    * [Fix] VP62 occasional zero height [xtat]
