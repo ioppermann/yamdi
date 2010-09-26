@@ -162,10 +162,17 @@ typedef struct {
 
 	int lasttimestamp;
 
-	char creator[256];
+	struct {
+		char creator[256];		// -c
 
-	int addonlastkeyframe;
-	int addonlastsecond;
+		short addonlastkeyframe;	// -k
+		short addonlastsecond;		// -s, -l (deprecated)
+
+		short keepmetadata;		// -m
+		short stripmetadata;		// -M
+
+		short xmlomitkeyframes;		// -X
+	} options;
 
 	buffer_t onmetadata;
 	buffer_t onlastkeyframe;
@@ -186,6 +193,7 @@ typedef struct {
 } h264data_t;
 
 int validateFLV(FILE *fp);
+int initFLV(FLV_t *flv);
 int indexFLV(FLV_t *flv, FILE *fp);
 int finalizeFLV(FLV_t *flv, FILE *fp);
 int writeFLV(FILE *out, FLV_t *flv, FILE *fp);
@@ -253,7 +261,7 @@ void printUsage(void);
 
 int main(int argc, char **argv) {
 	FILE *fp_infile = NULL, *fp_outfile = NULL, *fp_xmloutfile = NULL;
-	int c, addonlastsecond = 0, addonlastkeyframe = 0, unlink_infile = 0;
+	int c, unlink_infile = 0;
 	char *infile, *outfile, *xmloutfile, *tempfile, *creator;
 	FLV_t flv;
 
@@ -273,7 +281,9 @@ int main(int argc, char **argv) {
 	tempfile = NULL;
 	creator = NULL;
 
-	while((c = getopt(argc, argv, "i:o:x:t:c:lkh")) != -1) {
+	initFLV(&flv);
+
+	while((c = getopt(argc, argv, "i:o:x:t:c:lskmMXh")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -288,13 +298,23 @@ int main(int argc, char **argv) {
 				tempfile = optarg;
 				break;
 			case 'c':
-				creator = optarg;
+				strncpy(flv.options.creator, optarg, sizeof(flv.options.creator));
 				break;
 			case 'l':
-				addonlastsecond = 1;
+			case 's':
+				flv.options.addonlastsecond = 1;
 				break;
 			case 'k':
-				addonlastkeyframe = 1;
+				flv.options.addonlastkeyframe = 1;
+				break;
+			case 'm':
+				flv.options.keepmetadata = 1;
+				break;
+			case 'M':
+				flv.options.stripmetadata = 1;
+				break;
+			case 'X':
+				flv.options.xmlomitkeyframes = 1;
 				break;
 			case 'h':
 				printUsage();
@@ -446,11 +466,6 @@ int main(int argc, char **argv) {
 		exit(YAMDI_ERROR);
 	}
 
-	flv.addonlastsecond = addonlastsecond;
-	flv.addonlastkeyframe = addonlastkeyframe;
-	if(creator != NULL)
-		strncpy(flv.creator, creator, sizeof(flv.creator));
-
 	if(finalizeFLV(&flv, fp_infile) != YAMDI_OK) {
 		fclose(fp_infile);
 
@@ -521,12 +536,23 @@ int validateFLV(FILE *fp) {
 	return YAMDI_OK;
 }
 
+int initFLV(FLV_t *flv) {
+	if(flv == NULL)
+		return YAMDI_ERROR;
+
+	memset(flv, 0, sizeof(FLV_t));
+
+	return YAMDI_OK;
+}
+
 int indexFLV(FLV_t *flv, FILE *fp) {
 	off_t offset;
 	size_t nflvtags;
 	FLVTag_t flvtag;
 
-	memset(flv, 0, sizeof(FLV_t));
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] indexing file ...\n");
+#endif
 
 	// Count how many tags are there in this FLV
 	offset = FLV_SIZE_HEADER + FLV_SIZE_PREVIOUSTAGSIZE;
@@ -558,8 +584,16 @@ int indexFLV(FLV_t *flv, FILE *fp) {
 		offset += (flv->index.flvtag[nflvtags].tagsize + FLV_SIZE_PREVIOUSTAGSIZE);
 
 		nflvtags++;
+#ifdef DEBUG
+		if((nflvtags % 100) == 0)
+			fprintf(stderr, "[FLV] storing metadata (tag %d of %d)\r", nflvtags, flv->index.nflvtags);
+#endif
 	}
-	
+
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] storing metadata (tag %d of %d)\n", nflvtags, flv->index.nflvtags);
+#endif
+
 	return YAMDI_OK;
 }
 
@@ -597,6 +631,10 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	size_t i;
 	unsigned char flags;
 	FLVTag_t *flvtag;
+
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] analyzing FLV ...\n");
+#endif
 
 	for(i = 0; i < flv->index.nflvtags; i++) {
 		flvtag = &flv->index.flvtag[i];
@@ -692,7 +730,16 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 		}
 
 		flv->lasttimestamp = flvtag->timestamp;
+
+#ifdef DEBUG
+		if((i % 100) == 0)
+			fprintf(stderr, "[FLV] analyzing FLV (tag %d of %d)\r", i, flv->index.nflvtags);
+#endif
 	}
+
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] analyzing FLV (tag %d of %d)\n", i, flv->index.nflvtags);
+#endif
 
 	// Calculate audio datarate
 	if(flv->audio.datasize != 0)
@@ -902,10 +949,10 @@ int writeFLVHeader(FILE *fp, int hasaudio, int hasvideo) {
 int createFLVEvents(FLV_t *flv) {
 	createFLVEventOnMetaData(flv);
 
-	if(flv->addonlastkeyframe == 1)
+	if(flv->options.addonlastkeyframe == 1)
 		createFLVEventOnLastKeyframe(flv);
 
-	if(flv->addonlastsecond == 1)
+	if(flv->options.addonlastsecond == 1)
 		createFLVEventOnLastSecond(flv);
 
 	return YAMDI_OK;
@@ -928,8 +975,8 @@ onmetadatapass:
 
 	length = 0;
 
-	if(strlen(flv->creator) != 0) {
-		writeBufferFLVScriptDataValueString(&b, "creator", flv->creator); length++;
+	if(strlen(flv->options.creator) != 0) {
+		writeBufferFLVScriptDataValueString(&b, "creator", flv->options.creator); length++;
 	}
 
 	writeBufferFLVScriptDataValueString(&b, "metadatacreator", "Yet Another Metadata Injector for FLV - Version " YAMDI_VERSION "\0"); length++;
@@ -1323,8 +1370,8 @@ int writeBufferFLVScriptDataECMAArray(buffer_t *buffer, const char *name, size_t
 
 	bytes[0] = ((len >> 24) & 0xff);
 	bytes[1] = ((len >> 16) & 0xff);
-	bytes[2] = ((len >> 8) & 0xff);
-	bytes[3] = (len & 0xff);
+	bytes[2] = ((len >>  8) & 0xff);
+	bytes[3] = ((len >>  0) & 0xff);
 
 	bufferAppendBytes(buffer, bytes, 4);
 
@@ -1341,8 +1388,8 @@ int writeBufferFLVScriptDataValueArray(buffer_t *buffer, const char *name, size_
 
 	bytes[0] = ((len >> 24) & 0xff);
 	bytes[1] = ((len >> 16) & 0xff);
-	bytes[2] = ((len >> 8) & 0xff);
-	bytes[3] = (len & 0xff);
+	bytes[2] = ((len >>  8) & 0xff);
+	bytes[3] = ((len >>  0) & 0xff);
 
 	bufferAppendBytes(buffer, bytes, 4);
 
@@ -1425,7 +1472,7 @@ int writeBufferFLVScriptDataString(buffer_t *buffer, const char *s) {
 		writeBufferFLVScriptDataLongString(buffer, s);
 	else {
 		bytes[0] = ((len >> 8) & 0xff);
-		bytes[1] = (len & 0xff);
+		bytes[1] = ((len >> 0) & 0xff);
 
 		bufferAppendBytes(buffer, bytes, 2);
 		bufferAppendString(buffer, (unsigned char*)s);
@@ -1445,8 +1492,8 @@ int writeBufferFLVScriptDataLongString(buffer_t *buffer, const char *s) {
 
 	bytes[0] = ((len >> 24) & 0xff);
 	bytes[1] = ((len >> 16) & 0xff);
-	bytes[2] = ((len >> 8) & 0xff);
-	bytes[3] = (len & 0xff);
+	bytes[2] = ((len >>  8) & 0xff);
+	bytes[3] = ((len >>  0) & 0xff);
 
 	bufferAppendBytes(buffer, bytes, 4);
 	bufferAppendString(buffer, (unsigned char *)s);
@@ -2001,20 +2048,23 @@ void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile, FLV_t *
 	fprintf(fp, "<lastkeyframetimestamp>%.2f</lastkeyframetimestamp>\n", (double)flv->video.lastkeyframetimestamp / 1000.0);
 	fprintf(fp, "<lastkeyframelocation>%" PRId64 "</lastkeyframelocation>\n", flv->video.lastkeyframelocation);
 
-	fprintf(fp, "<keyframes>\n");
-	fprintf(fp, "<times>\n");
+	if(flv->options.xmlomitkeyframes == 0) {
+		fprintf(fp, "<keyframes>\n");
+		fprintf(fp, "<times>\n");
 
-	for(i = 0; i < flv->video.nkeyframes; i++)
-		fprintf(fp, "<value id=\"%" PRIu64 "\">%.2f</value>\n", (uint64_t)i, (double)flv->video.keyframetimestamps[i] / 1000.0);
+		for(i = 0; i < flv->video.nkeyframes; i++)
+			fprintf(fp, "<value id=\"%" PRIu64 "\">%.2f</value>\n", (uint64_t)i, (double)flv->video.keyframetimestamps[i] / 1000.0);
 
-	fprintf(fp, "</times>\n");
-	fprintf(fp, "<filepositions>\n");
+		fprintf(fp, "</times>\n");
+		fprintf(fp, "<filepositions>\n");
 
-	for(i = 0; i < flv->video.nkeyframes; i++)
-		fprintf(fp, "<value id=\"%" PRIu64 "\">%" PRId64 "</value>\n", (uint64_t)i, flv->video.keyframelocations[i]);
+		for(i = 0; i < flv->video.nkeyframes; i++)
+			fprintf(fp, "<value id=\"%" PRIu64 "\">%" PRId64 "</value>\n", (uint64_t)i, flv->video.keyframelocations[i]);
 
-	fprintf(fp, "</filepositions>\n");
-	fprintf(fp, "</keyframes>\n");
+		fprintf(fp, "</filepositions>\n");
+		fprintf(fp, "</keyframes>\n");
+	}
+
 	fprintf(fp, "<duration>%.2f</duration>\n", (double)flv->lasttimestamp / 1000.0);
 	fprintf(fp, "</flv>\n");
 	fprintf(fp, "</fileset>\n");
@@ -2030,7 +2080,7 @@ void printUsage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-l] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skmMX] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -2053,7 +2103,17 @@ void printUsage(void) {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "\t-l\tAdd the onLastSecond event.\n");
+	fprintf(stderr, "\t-s, -l\tAdd the onLastSecond event.\n");
+	fprintf(stderr, "\t\tThe -l option is deprecated and will be removed in a future version.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-k\tAdd the onLastKeyframe event.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-m\tLeave the existing metadata intact.\n");
+	fprintf(stderr, "\t\tMetadata that yamdi does not add is left untouched, e.g. onCuepoint.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-M\tStrip all metadata from the FLV.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-h\tThis description.\n");
 	fprintf(stderr, "\n");
