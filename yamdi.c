@@ -149,6 +149,7 @@ typedef struct {
 
 		int lasttimestamp;
 
+		size_t lastkeyframeindex;
 		int lastkeyframetimestamp;
 		off_t lastkeyframelocation;
 
@@ -161,6 +162,9 @@ typedef struct {
 	uint64_t filesize;			// [sic!]
 
 	int lasttimestamp;
+
+	int lastsecond;
+	size_t lastsecondindex;
 
 	struct {
 		char creator[256];		// -c
@@ -692,6 +696,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			if(keyframe == 1) {
 				flv->canseektoend = 1;
 				flv->video.nkeyframes++;
+				flv->video.lastkeyframeindex = i;
 			}
 			else
 				flv->canseektoend = 0;
@@ -739,6 +744,30 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 
 #ifdef DEBUG
 	fprintf(stderr, "[FLV] analyzing FLV (tag %d of %d)\n", i, flv->index.nflvtags);
+
+	fprintf(stderr, "[FLV] lasttimestamp = %d ms\n", flv->lasttimestamp);
+#endif
+
+	// Calculate the last second
+	if(flv->lasttimestamp >= 1000) {
+		flv->lastsecond = flv->lasttimestamp - 1000;
+		for(i = (flv->index.nflvtags - 1); i >= 0; i--) {
+			flvtag = &flv->index.flvtag[i];
+
+			if(flvtag->timestamp <= flv->lastsecond) {
+				flv->lastsecond += 1;
+				flv->lastsecondindex = i;
+
+				break;
+			}
+		}
+	}
+	else
+		flv->options.addonlastsecond = 0;
+
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] lastsecond = %d ms\n", flv->lastsecond);
+	fprintf(stderr, "[FLV] lastsecondindex = %d\n", flv->lastsecondindex);
 #endif
 
 	// Calculate audio datarate
@@ -764,6 +793,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	fprintf(stderr, "[FLV] video.lasttimestamp = %d ms\n", flv->video.lasttimestamp);
 	fprintf(stderr, "[FLV] video.ntags = %d\n", flv->video.ntags);
 	fprintf(stderr, "[FLV] video.nkeyframes = %d\n", flv->video.nkeyframes);
+	fprintf(stderr, "[FLV] video.lastkeyframeindex = %d\n", flv->video.lastkeyframeindex);
 	fprintf(stderr, "[FLV] video.framerate = %f fps\n", flv->video.framerate);
 	fprintf(stderr, "[FLV] video.datasize = %" PRIu64 " kb\n", flv->video.datasize);
 	fprintf(stderr, "[FLV] video.datarate = %f kbit/s\n", flv->video.datarate);
@@ -831,6 +861,10 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO)
 			continue;
 
+		// Take care of the onlastsecond event
+		if(flv->options.addonlastsecond == 1 && flv->lastsecondindex == i)
+			flv->filesize += flv->onlastsecond.used;
+
 		// Update the keyframe index only if there are keyframes ...
 		if(flv->video.nkeyframes != 0 && flvtag->tagtype == FLV_TAG_VIDEO) {
 			readFLVTagData(&flags, 1, flvtag, fp);
@@ -838,6 +872,10 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 			// Keyframes
 			keyframe = (flags >> 4) & 0xf;
 			if(keyframe == 1) {
+				// Take care of the onlastkeyframe event
+				if(flv->options.addonlastkeyframe == 1 && flv->video.lastkeyframeindex == i)
+					flv->filesize += flv->onlastkeyframe.used;
+
 				flv->video.keyframelocations[index] = flv->filesize;
 				flv->video.keyframetimestamps[index] = flvtag->timestamp;
 
@@ -886,6 +924,14 @@ int writeFLV(FILE *out, FLV_t *flv, FILE *fp) {
 		// Skip every script tag (subject to change if we want to keep existing events)
 		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO)
 			continue;
+
+		// Write the onlastsecond event
+		if(flv->options.addonlastsecond == 1 && flv->lastsecondindex == i)
+			fwrite(flv->onlastsecond.data, flv->onlastsecond.used, 1, out);
+
+		// Write the onlastkeyframe event
+		if(flv->options.addonlastkeyframe == 1 && flv->video.lastkeyframeindex == i)
+			fwrite(flv->onlastkeyframe.data, flv->onlastkeyframe.used, 1, out);
 
 		writeFLVDataTag(out, flvtag->tagtype, flvtag->timestamp, flvtag->datasize);
 
@@ -1068,7 +1114,7 @@ int createFLVEventOnLastSecond(FLV_t *flv) {
 	// Write the onLastSecond tag
 	bufferReset(&flv->onlastsecond);
 
-	writeBufferFLVScriptDataTag(&flv->onlastsecond, 0000, b.used);
+	writeBufferFLVScriptDataTag(&flv->onlastsecond, flv->lastsecond, b.used);
 	bufferAppendBuffer(&flv->onlastsecond, &b);
 	writeBufferFLVPreviousTagSize(&flv->onlastsecond, flv->onlastsecond.used);
 
