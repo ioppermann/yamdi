@@ -171,6 +171,7 @@ typedef struct {
 
 		short addonlastkeyframe;	// -k
 		short addonlastsecond;		// -s, -l (deprecated)
+		short addonmetadata;		// defaults to 1, -M does change it
 
 		short keepmetadata;		// -m
 		short stripmetadata;		// -M
@@ -477,6 +478,15 @@ int main(int argc, char **argv) {
 		else
 			fp_xmloutfile = stdout;
 	}
+
+	// Check the options
+	if(flv.options.stripmetadata == 1) {
+		flv.options.addonlastkeyframe = 0;
+		flv.options.addonlastsecond = 0;
+		flv.options.addonmetadata = 0;
+	}
+	else
+		flv.options.addonmetadata = 1;
 
 	// Create an index of the FLV file
 	if(indexFLV(&flv, fp_infile) != YAMDI_OK) {
@@ -884,7 +894,8 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 	flv->filesize += FLV_SIZE_HEADER + FLV_SIZE_PREVIOUSTAGSIZE;
 
 	// onMetaData event
-	flv->filesize += flv->onmetadata.used;
+	if(flv->options.addonmetadata == 1)
+		flv->filesize += flv->onmetadata.used;
 
 	// Calculate the final filesize and update the keyframe index
 	index = 0;
@@ -951,7 +962,8 @@ int writeFLV(FILE *out, FLV_t *flv, FILE *fp) {
 	writeFLVPreviousTagSize(out, 0);
 
 	// Write the onMetaData tag
-	fwrite(flv->onmetadata.data, flv->onmetadata.used, 1, out);
+	if(flv->options.addonmetadata == 1)
+		fwrite(flv->onmetadata.data, flv->onmetadata.used, 1, out);
 
 	// Copy the audio and video tags
 	for(i = 0; i < flv->index.nflvtags; i++) {
@@ -1029,7 +1041,8 @@ int writeFLVHeader(FILE *fp, int hasaudio, int hasvideo) {
 }
 
 int createFLVEvents(FLV_t *flv) {
-	createFLVEventOnMetaData(flv);
+	if(flv->options.addonmetadata == 1)
+		createFLVEventOnMetaData(flv);
 
 	if(flv->options.addonlastkeyframe == 1)
 		createFLVEventOnLastKeyframe(flv);
@@ -2206,6 +2219,7 @@ void printUsage(void) {
 	fprintf(stderr, "\n");
 */
 	fprintf(stderr, "\t-M\tStrip all metadata from the FLV.\n");
+	fprintf(stderr, "\t\tThe -s and -k options will be ignored.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
 	fprintf(stderr, "\n");
