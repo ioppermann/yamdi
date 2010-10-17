@@ -2218,8 +2218,7 @@ void printUsage(void) {
 	fprintf(stderr, "\t\tMetadata that yamdi does not add is left untouched, e.g. onCuepoint.\n");
 	fprintf(stderr, "\n");
 */
-	fprintf(stderr, "\t-M\tStrip all metadata from the FLV.\n");
-	fprintf(stderr, "\t\tThe -s and -k options will be ignored.\n");
+	fprintf(stderr, "\t-M\tStrip all metadata from the FLV. The -s and -k options will be ignored.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
 	fprintf(stderr, "\n");
