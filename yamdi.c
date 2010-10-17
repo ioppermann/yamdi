@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, "i:o:x:t:c:lskmMXh")) != -1) {
+	while((c = getopt(argc, argv, "i:o:x:t:c:lskMXh")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -311,9 +311,11 @@ int main(int argc, char **argv) {
 			case 'k':
 				flv.options.addonlastkeyframe = 1;
 				break;
+/*
 			case 'm':
 				flv.options.keepmetadata = 1;
 				break;
+*/
 			case 'M':
 				flv.options.stripmetadata = 1;
 				break;
@@ -356,7 +358,8 @@ int main(int argc, char **argv) {
 
 	// Check input file
 	if(!strcmp(infile, "-")) {		// Read from stdin
-		// Check the temporary file
+		// tempfile is available
+		// Check if the possible outfiles collide with the tempfile
 		if(outfile != NULL) {
 			if(!strcmp(tempfile, outfile)) {
 				fprintf(stderr, "The temporary file and the output file must not be the same.\n");
@@ -370,25 +373,10 @@ int main(int argc, char **argv) {
 				exit(YAMDI_ERROR);
 			}
 		}
-
-		// Open the temporary file
-		fp_infile = fopen(tempfile, "wb");
-		if(fp_infile == NULL) {
-			fprintf(stderr, "Couldn't open the tempfile %s.\n", tempfile);
-			exit(YAMDI_ERROR);
-		}
-
-		// Store stdin to temporary file
-		storeFLVFromStdin(fp_infile);
-
-		// Close temporary file
-		fclose(fp_infile);
-
-		// Mimic normal input file, but don't forget to remove the temporary file
-		infile = tempfile;
-		unlink_infile = 1;
 	}
-	else {
+	else {					// Read from file
+		// infile is available
+		// Check if the possible outfile collide with the infile
 		if(outfile != NULL) {
 			if(!strcmp(infile, outfile)) {
 				fprintf(stderr, "The input file and the output file must not be the same.\n");
@@ -406,15 +394,65 @@ int main(int argc, char **argv) {
 
 	// Check output file
 	if(outfile != NULL) {
-		if(!strcmp(infile, outfile)) {
-			fprintf(stderr, "The input file and the output file must not be the same.\n");
+		if(xmloutfile != NULL) {
+			if(!strcmp(outfile, xmloutfile)) {
+				fprintf(stderr, "The output file and the XML output file must not be the same.\n");
+				exit(YAMDI_ERROR);
+			}
+		}
+	}
+
+	// All checks are done. Open the files.
+
+	// Open the inputfile
+	// Store data to tempfile if inputfile is stdin
+	if(!strcmp(infile, "-")) {
+		fp_infile = fopen(tempfile, "wb");
+		if(fp_infile == NULL) {
+			fprintf(stderr, "Couldn't open the tempfile %s.\n", tempfile);
 			exit(YAMDI_ERROR);
 		}
 
+		// Store stdin to temporary file
+		storeFLVFromStdin(fp_infile);
+
+		// Close temporary file
+		fclose(fp_infile);
+
+		// Mimic normal input file, but don't forget to remove the temporary file
+		infile = tempfile;
+		unlink_infile = 1;
+	}
+
+	fp_infile = fopen(infile, "rb");
+	if(fp_infile == NULL) {
+		if(unlink_infile == 1)
+			unlink(infile);
+
+		exit(YAMDI_ERROR);
+	}
+
+	// Check if we have a valid FLV file
+	if(validateFLV(fp_infile) != YAMDI_OK) {
+		fclose(fp_infile);
+
+		if(unlink_infile == 1)
+			unlink(infile);
+
+		exit(YAMDI_ERROR);
+	}
+
+	// Open the outfile
+	fp_outfile = NULL;
+	if(outfile != NULL) {
 		if(strcmp(outfile, "-")) {
 			fp_outfile = fopen(outfile, "wb");
 			if(fp_outfile == NULL) {
 				fprintf(stderr, "Couldn't open %s.\n", outfile);
+
+				if(unlink_infile == 1)
+					unlink(infile);
+
 				exit(YAMDI_ERROR);
 			}
 		}
@@ -422,22 +460,17 @@ int main(int argc, char **argv) {
 			fp_outfile = stdout;
 	}
 
-	// Check XML output file
+	// Open the XML outputfile
+	fp_xmloutfile = NULL;
 	if(xmloutfile != NULL) {
-		if(!strcmp(infile, xmloutfile)) {
-			fprintf(stderr, "The input file and the XML output file must not be the same.\n");
-			exit(YAMDI_ERROR);
-		}
-
-		if(!strcmp(outfile, xmloutfile)) {
-			fprintf(stderr, "The output file and the XML output file must not be the same.\n");
-			exit(YAMDI_ERROR);
-		}
-
 		if(strcmp(xmloutfile, "-")) {
 			fp_xmloutfile = fopen(xmloutfile, "wb");
 			if(fp_xmloutfile == NULL) {
 				fprintf(stderr, "Couldn't open %s.\n", xmloutfile);
+
+				if(unlink_infile == 1)
+					unlink(infile);
+
 				exit(YAMDI_ERROR);
 			}
 		}
@@ -445,21 +478,12 @@ int main(int argc, char **argv) {
 			fp_xmloutfile = stdout;
 	}
 
-	// Open the input file
-	fp_infile = fopen(infile, "rb");
-	if(fp_infile == NULL)
-		exit(YAMDI_ERROR);
-
-	// Check if we have a valid FLV file
-	if(validateFLV(fp_infile) != YAMDI_OK) {
-		fclose(fp_infile);
-
-		exit(YAMDI_ERROR);
-	}
-
 	// Create an index of the FLV file
 	if(indexFLV(&flv, fp_infile) != YAMDI_OK) {
 		fclose(fp_infile);
+
+		if(unlink_infile == 1)
+			unlink(infile);
 
 		exit(YAMDI_ERROR);
 	}
@@ -467,11 +491,17 @@ int main(int argc, char **argv) {
 	if(analyzeFLV(&flv, fp_infile) != YAMDI_OK) {
 		fclose(fp_infile);
 
+		if(unlink_infile == 1)
+			unlink(infile);
+
 		exit(YAMDI_ERROR);
 	}
 
 	if(finalizeFLV(&flv, fp_infile) != YAMDI_OK) {
 		fclose(fp_infile);
+
+		if(unlink_infile == 1)
+			unlink(infile);
 
 		exit(YAMDI_ERROR);
 	}
@@ -482,10 +512,10 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "[FLV] onlastkeyframe = %d bytes (%d bytes allocated)\n", flv.onlastkeyframe.used, flv.onlastkeyframe.size);
 #endif
 
-	if(outfile != NULL)
+	if(fp_outfile != NULL)
 		writeFLV(fp_outfile, &flv, fp_infile);
 
-	if(xmloutfile != NULL)
+	if(fp_xmloutfile != NULL)
 		writeXMLMetadata(fp_xmloutfile, infile, outfile, &flv);
 
 	fclose(fp_infile);
@@ -502,7 +532,7 @@ int main(int argc, char **argv) {
 	if(fp_xmloutfile != NULL && fp_xmloutfile != stdout)
 		fclose(fp_xmloutfile);
 
-	return 0;
+	return YAMDI_OK;
 }
 
 int validateFLV(FILE *fp) {
@@ -650,7 +680,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			flv->audio.datasize += flvtag->datasize;
 			flv->audio.size += flvtag->tagsize;
 
-			flv->video.lasttimestamp = flvtag->timestamp;
+			flv->audio.lasttimestamp = flvtag->timestamp;
 
 			readFLVTagData(&flags, 1, flvtag, fp);
 
@@ -775,6 +805,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 		flv->audio.datarate = (double)flv->audio.datasize * 8.0 / 1024.0 / (double)flv->audio.lasttimestamp * 1000.0;
 
 #ifdef DEBUG
+	fprintf(stderr, "[FLV] audio.codecid = %d\n", flv->audio.codecid);
 	fprintf(stderr, "[FLV] audio.lasttimestamp = %d ms\n", flv->audio.lasttimestamp);
 	fprintf(stderr, "[FLV] audio.ntags = %d\n", flv->audio.ntags);
 	fprintf(stderr, "[FLV] audio.datasize = %" PRIu64 " kb\n", flv->audio.datasize);
@@ -790,6 +821,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 		flv->video.datarate = (double)flv->video.datasize * 8.0 / 1024.0 / (double)flv->lasttimestamp * 1000.0;
 
 #ifdef DEBUG
+	fprintf(stderr, "[FLV] video.codecid = %d\n", flv->video.codecid);
 	fprintf(stderr, "[FLV] video.lasttimestamp = %d ms\n", flv->video.lasttimestamp);
 	fprintf(stderr, "[FLV] video.ntags = %d\n", flv->video.ntags);
 	fprintf(stderr, "[FLV] video.nkeyframes = %d\n", flv->video.nkeyframes);
@@ -797,6 +829,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	fprintf(stderr, "[FLV] video.framerate = %f fps\n", flv->video.framerate);
 	fprintf(stderr, "[FLV] video.datasize = %" PRIu64 " kb\n", flv->video.datasize);
 	fprintf(stderr, "[FLV] video.datarate = %f kbit/s\n", flv->video.datarate);
+	fprintf(stderr, "[FLV] video.width = %d\n", flv->video.width);
+	fprintf(stderr, "[FLV] video.height = %d\n", flv->video.height);
 #endif
 
 	// Calculate datasize
@@ -886,8 +920,10 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 		flv->filesize += flvtag->tagsize + FLV_SIZE_PREVIOUSTAGSIZE;
 	}
 
-	flv->video.lastkeyframetimestamp = flv->video.keyframetimestamps[flv->video.nkeyframes - 1];
-	flv->video.lastkeyframelocation = flv->video.keyframelocations[flv->video.nkeyframes - 1];
+	if(flv->video.nkeyframes != 0) {
+		flv->video.lastkeyframetimestamp = flv->video.keyframetimestamps[flv->video.nkeyframes - 1];
+		flv->video.lastkeyframelocation = flv->video.keyframelocations[flv->video.nkeyframes - 1];
+	}
 
 #ifdef DEBUG
 	fprintf(stderr, "[FLV] video.lastkeyframetimestamp = %d ms\n", flv->video.lastkeyframetimestamp);
@@ -1297,17 +1333,24 @@ int analyzeFLVScreenVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
 }
 
 int analyzeFLVVP62VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
-	unsigned char *buffer, data[7];
+	int offset = 2;
+	unsigned char *buffer, data[9];
 
 	readFLVTagData(data, sizeof(data), flvtag, fp);
 	// Skip the VIDEODATA header
 	buffer = &data[1];
 
-	flv->video.width = buffer[4] * 16 - (buffer[0] >> 4);
-	flv->video.height = buffer[3] * 16 - (buffer[0] & 0x0f);
+	// if frame_mode==0, there's an extra byte of data.
+	if ((buffer[1] >> 7) == 0)
+		offset += 1;
 
-	if(flv->video.height <= 0.0)
-		flv->video.height = buffer[5] * 16 - (buffer[0] & 0x0f);
+	// if marker==1 or version2==0 (from frame mode data byte), there are 2 more extra data bytes
+	if ((buffer[1] & 1) == 1 || ((offset > 2) && ((buffer[2] >> 1) & 3) == 0))
+		offset += 2;
+
+	// Now offset points to the resolution values: [h_mb,w_mb,h_disp,w_disp]
+	flv->video.width = buffer[offset + 3] * 16 - (buffer[0] >> 4);
+	flv->video.height = buffer[offset + 2] * 16 - (buffer[0] & 0x0f);
 
 	return YAMDI_OK;
 }
@@ -1616,8 +1659,11 @@ int readFLVTag(FLVTag_t *flvtag, off_t offset, FILE *fp) {
 	readBytes(buffer, FLV_SIZE_PREVIOUSTAGSIZE, fp);
 
 	// Check the previous tag size
+	// This is too picky. We don't need it.
+/*
 	if(FLV_UI32(buffer) != (FLV_SIZE_TAGHEADER + flvtag->datasize))
 		return YAMDI_INVALID_PREVIOUSTAGSIZE;
+*/
 
 	flvtag->tagsize = FLV_SIZE_TAGHEADER + flvtag->datasize;
 
@@ -2126,7 +2172,7 @@ void printUsage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skmMX] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skMX] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -2154,9 +2200,11 @@ void printUsage(void) {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-k\tAdd the onLastKeyframe event.\n");
 	fprintf(stderr, "\n");
+/*
 	fprintf(stderr, "\t-m\tLeave the existing metadata intact.\n");
 	fprintf(stderr, "\t\tMetadata that yamdi does not add is left untouched, e.g. onCuepoint.\n");
 	fprintf(stderr, "\n");
+*/
 	fprintf(stderr, "\t-M\tStrip all metadata from the FLV.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
