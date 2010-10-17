@@ -1,5 +1,10 @@
 yamdi-1.6:
    * [Fix] Large file support
+   * [Fix] VP62 occasional wrong width/height detection [jgreer-zencoder]
+   * [Add] onLastKeyframe event with -k
+   * [Add] onLastSecond event with -s. -l deprecated
+   * [Add] Strip all metadata with -M
+   * [Add] Omit the keyframes tag in the XML output with -X.
 
 yamdi-1.5:
    * [Fix] Segfault on empty files under *nix [zas_]
