@@ -2,7 +2,7 @@
 .\" First parameter, NAME, should be all caps
 .\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
 .\" other parameters are allowed: see man(7), man(1)
-.TH YAMDI 1 "August 15, 2010"
+.TH YAMDI 1 "October 17, 2010"
 .\" Please adjust this date whenever revising the manpage.
 .\"
 .\" Some roff macros, for reference:
@@ -19,7 +19,7 @@
 yamdi \- yet another metadata injector (flv)
 .SH SYNOPSIS
 .B yamdi
-\-i input file [\-x xml file | \-o output file [\-x xml file]] [-t temporary file] [\-c creator] [\-l] [\-h]
+\-i input file [\-x xml file | \-o output file [\-x xml file]] [-t temporary file] [\-c creator] [\-skMX] [\-h]
 .SH DESCRIPTION
 yamdi stands for Yet Another MetaData Injector and is a metadata injector for FLV files. It adds the onMetaData event to your FLV files.
 .SH OPTIONS
@@ -39,8 +39,18 @@ A temporary file to store the source FLV file in if the input file is read from 
 .B \-c
 A string that will be written into the creator tag.
 .TP
-.B \-l
+.B \-s, -l
 Add the onLastSecond event.
+The -l option is deprecated and will be removed in a future version.
+.TP
+.B \-k
+Add the onLastKeyframe event.
+.TP
+.B \-M
+Strip all metadata from the FLV. The -s and -k options will be ignored.
+.TP
+.B \-X
+Omit the keyframes tag in the XML output.
 .TP
 .B \-h
 Show summary of options.
@@ -55,4 +65,4 @@ exits 0 on success, and >0 if an error occurs.
 yamdi was written by Ingo Oppermann
 .PP
 This manual page was written by Todd Troxell <ttroxell@debian.org>,
-for the Debian project (but may be used by others).
+for the Debian project (but may be used by others). Updated by Ingo Oppermann
