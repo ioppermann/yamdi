@@ -42,6 +42,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #ifdef __MINGW32__
 	#define off_t _off64_t
@@ -49,7 +50,7 @@
 	#define ftello(stream) ftello64(stream)
 #endif
 
-#define YAMDI_VERSION			"1.6"
+#define YAMDI_VERSION			"1.7"
 
 #define YAMDI_OK			0
 #define YAMDI_ERROR			1
@@ -173,7 +174,7 @@ typedef struct {
 		short addonlastsecond;		// -s, -l (deprecated)
 		short addonmetadata;		// defaults to 1, -M does change it
 
-		short keepmetadata;		// -m
+		short keepmetadata;		// -m (not implemented)
 		short stripmetadata;		// -M
 
 		short xmlomitkeyframes;		// -X
@@ -624,7 +625,13 @@ int indexFLV(FLV_t *flv, FILE *fp) {
 	// Store the tag metadata in the index
 	offset = FLV_SIZE_HEADER + FLV_SIZE_PREVIOUSTAGSIZE;
 	nflvtags = 0;
-	while(readFLVTag(&flv->index.flvtag[nflvtags], offset, fp) == YAMDI_OK) {
+	while(readFLVTag(&flvtag, offset, fp) == YAMDI_OK) {
+		flv->index.flvtag[nflvtags].offset = flvtag.offset;
+		flv->index.flvtag[nflvtags].tagtype = flvtag.tagtype;
+		flv->index.flvtag[nflvtags].datasize = flvtag.datasize;
+		flv->index.flvtag[nflvtags].timestamp = flvtag.timestamp;
+		flv->index.flvtag[nflvtags].tagsize = flvtag.tagsize;
+
 		offset += (flv->index.flvtag[nflvtags].tagsize + FLV_SIZE_PREVIOUSTAGSIZE);
 
 		nflvtags++;
@@ -1649,11 +1656,18 @@ int writeBufferFLVDouble(buffer_t *buffer, double value) {
 }
 
 int readFLVTag(FLVTag_t *flvtag, off_t offset, FILE *fp) {
+	int rv;
 	unsigned char buffer[FLV_SIZE_TAGHEADER];
 
 	memset(flvtag, 0, sizeof(FLVTag_t));
 
-	fseeko(fp, offset, SEEK_SET);
+	rv = fseeko(fp, offset, SEEK_SET);
+	if(rv != 0) {
+#ifdef DEBUG
+		fprintf(stderr, "[FLV] %s\n", strerror(errno));
+#endif
+		return YAMDI_READ_ERROR;
+	}
 
 	flvtag->offset = offset;
 
