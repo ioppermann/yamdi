@@ -2165,7 +2165,7 @@ void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile, FLV_t *
 	fprintf(fp, "<lasttimestamp>%.2f</lasttimestamp>\n", (double)flv->lasttimestamp / 1000.0);
 	fprintf(fp, "<lastvideoframetimestamp>%.2f</lastvideoframetimestamp>\n", (double)flv->video.lasttimestamp / 1000.0);
 	fprintf(fp, "<lastkeyframetimestamp>%.2f</lastkeyframetimestamp>\n", (double)flv->video.lastkeyframetimestamp / 1000.0);
-	fprintf(fp, "<lastkeyframelocation>%" PRId64 "</lastkeyframelocation>\n", flv->video.lastkeyframelocation);
+	fprintf(fp, "<lastkeyframelocation>%" PRIu64 "</lastkeyframelocation>\n", (uint64_t)flv->video.lastkeyframelocation);
 
 	if(flv->options.xmlomitkeyframes == 0) {
 		fprintf(fp, "<keyframes>\n");
@@ -2178,7 +2178,7 @@ void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile, FLV_t *
 		fprintf(fp, "<filepositions>\n");
 
 		for(i = 0; i < flv->video.nkeyframes; i++)
-			fprintf(fp, "<value id=\"%" PRIu64 "\">%" PRId64 "</value>\n", (uint64_t)i, flv->video.keyframelocations[i]);
+			fprintf(fp, "<value id=\"%" PRIu64 "\">%" PRIu64 "</value>\n", (uint64_t)i, (uint64_t)flv->video.keyframelocations[i]);
 
 		fprintf(fp, "</filepositions>\n");
 		fprintf(fp, "</keyframes>\n");
