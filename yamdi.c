@@ -149,7 +149,10 @@ typedef struct {
 		uint64_t size;			// Size of the video tags (header + data)
 
 		int lasttimestamp;
+	} video;
 
+	short haskeyframes;
+	struct {
 		size_t lastkeyframeindex;
 		int lastkeyframetimestamp;
 		off_t lastkeyframelocation;
@@ -157,7 +160,7 @@ typedef struct {
 		size_t nkeyframes;		// # of key frames
 		off_t *keyframelocations;	// Array of the filepositions of the keyframes (in the target file!)
 		int *keyframetimestamps;	// Array of the timestamps of the keyframes
-	} video;
+	} keyframes;
 
 	uint64_t datasize;			// Size of all audio and video tags (header + data + FLV_SIZE_PREVIOUSTAGSIZE)
 	uint64_t filesize;			// [sic!]
@@ -662,11 +665,11 @@ int freeFLV(FLV_t *flv) {
 	if(flv->index.nflvtags != 0)
 		free(flv->index.flvtag);
 
-	if(flv->video.keyframelocations != NULL)
-		free(flv->video.keyframelocations);
+	if(flv->keyframes.keyframelocations != NULL)
+		free(flv->keyframes.keyframelocations);
 
-	if(flv->video.keyframetimestamps != NULL)
-		free(flv->video.keyframetimestamps);
+	if(flv->keyframes.keyframetimestamps != NULL)
+		free(flv->keyframes.keyframetimestamps);
 
 	bufferFree(&flv->onmetadata);
 	bufferFree(&flv->onlastsecond);
@@ -742,8 +745,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			keyframe = (flags >> 4) & 0xf;
 			if(keyframe == 1) {
 				flv->canseektoend = 1;
-				flv->video.nkeyframes++;
-				flv->video.lastkeyframeindex = i;
+				flv->keyframes.nkeyframes++;
+				flv->keyframes.lastkeyframeindex = i;
 			}
 			else
 				flv->canseektoend = 0;
@@ -841,8 +844,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	fprintf(stderr, "[FLV] video.codecid = %d\n", flv->video.codecid);
 	fprintf(stderr, "[FLV] video.lasttimestamp = %d ms\n", flv->video.lasttimestamp);
 	fprintf(stderr, "[FLV] video.ntags = %d\n", flv->video.ntags);
-	fprintf(stderr, "[FLV] video.nkeyframes = %d\n", flv->video.nkeyframes);
-	fprintf(stderr, "[FLV] video.lastkeyframeindex = %d\n", flv->video.lastkeyframeindex);
+	fprintf(stderr, "[FLV] keyframes.nkeyframes = %d\n", flv->keyframes.nkeyframes);
+	fprintf(stderr, "[FLV] keyframes.lastkeyframeindex = %d\n", flv->keyframes.lastkeyframeindex);
 	fprintf(stderr, "[FLV] video.framerate = %f fps\n", flv->video.framerate);
 	fprintf(stderr, "[FLV] video.datasize = %" PRIu64 " kb\n", flv->video.datasize);
 	fprintf(stderr, "[FLV] video.datarate = %f kbit/s\n", flv->video.datarate);
@@ -858,13 +861,13 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 #endif
 
 	// Allocate some memory for the keyframe index
-	if(flv->video.nkeyframes != 0) {
-		flv->video.keyframelocations = (off_t *)calloc(flv->video.nkeyframes, sizeof(off_t));
-		if(flv->video.keyframelocations == NULL)
+	if(flv->keyframes.nkeyframes != 0) {
+		flv->keyframes.keyframelocations = (off_t *)calloc(flv->keyframes.nkeyframes, sizeof(off_t));
+		if(flv->keyframes.keyframelocations == NULL)
 			return YAMDI_OUT_OF_MEMORY;
 
-		flv->video.keyframetimestamps = (int *)calloc(flv->video.nkeyframes, sizeof(int));
-		if(flv->video.keyframetimestamps == NULL)
+		flv->keyframes.keyframetimestamps = (int *)calloc(flv->keyframes.nkeyframes, sizeof(int));
+		if(flv->keyframes.keyframetimestamps == NULL)
 			return YAMDI_OUT_OF_MEMORY;
 	}
 
@@ -918,18 +921,18 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 			flv->filesize += flv->onlastsecond.used;
 
 		// Update the keyframe index only if there are keyframes ...
-		if(flv->video.nkeyframes != 0 && flvtag->tagtype == FLV_TAG_VIDEO) {
+		if(flv->keyframes.nkeyframes != 0 && flvtag->tagtype == FLV_TAG_VIDEO) {
 			readFLVTagData(&flags, 1, flvtag, fp);
 
 			// Keyframes
 			keyframe = (flags >> 4) & 0xf;
 			if(keyframe == 1) {
 				// Take care of the onlastkeyframe event
-				if(flv->options.addonlastkeyframe == 1 && flv->video.lastkeyframeindex == i)
+				if(flv->options.addonlastkeyframe == 1 && flv->keyframes.lastkeyframeindex == i)
 					flv->filesize += flv->onlastkeyframe.used;
 
-				flv->video.keyframelocations[index] = flv->filesize;
-				flv->video.keyframetimestamps[index] = flvtag->timestamp;
+				flv->keyframes.keyframelocations[index] = flv->filesize;
+				flv->keyframes.keyframetimestamps[index] = flvtag->timestamp;
 
 				index++;
 			}
@@ -938,14 +941,14 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 		flv->filesize += flvtag->tagsize + FLV_SIZE_PREVIOUSTAGSIZE;
 	}
 
-	if(flv->video.nkeyframes != 0) {
-		flv->video.lastkeyframetimestamp = flv->video.keyframetimestamps[flv->video.nkeyframes - 1];
-		flv->video.lastkeyframelocation = flv->video.keyframelocations[flv->video.nkeyframes - 1];
+	if(flv->keyframes.nkeyframes != 0) {
+		flv->keyframes.lastkeyframetimestamp = flv->keyframes.keyframetimestamps[flv->keyframes.nkeyframes - 1];
+		flv->keyframes.lastkeyframelocation = flv->keyframes.keyframelocations[flv->keyframes.nkeyframes - 1];
 	}
 
 #ifdef DEBUG
-	fprintf(stderr, "[FLV] video.lastkeyframetimestamp = %d ms\n", flv->video.lastkeyframetimestamp);
-	fprintf(stderr, "[FLV] video.lastkeyframelocation = %" PRIi64 "\n", flv->video.lastkeyframelocation);
+	fprintf(stderr, "[FLV] keyframes.lastkeyframetimestamp = %d ms\n", flv->keyframes.lastkeyframetimestamp);
+	fprintf(stderr, "[FLV] keyframes.lastkeyframelocation = %" PRIi64 "\n", flv->keyframes.lastkeyframelocation);
 
 	fprintf(stderr, "[FLV] filesize = %" PRIu64 " kb\n", flv->filesize);
 #endif
@@ -985,7 +988,7 @@ int writeFLV(FILE *out, FLV_t *flv, FILE *fp) {
 			fwrite(flv->onlastsecond.data, flv->onlastsecond.used, 1, out);
 
 		// Write the onlastkeyframe event
-		if(flv->options.addonlastkeyframe == 1 && flv->video.lastkeyframeindex == i)
+		if(flv->options.addonlastkeyframe == 1 && flv->keyframes.lastkeyframeindex == i)
 			fwrite(flv->onlastkeyframe.data, flv->onlastkeyframe.used, 1, out);
 
 		writeFLVDataTag(out, flvtag->tagtype, flvtag->timestamp, flvtag->datasize);
@@ -1082,7 +1085,7 @@ onmetadatapass:
 	}
 
 	writeBufferFLVScriptDataValueString(&b, "metadatacreator", "Yet Another Metadata Injector for FLV - Version " YAMDI_VERSION "\0"); length++;
-	writeBufferFLVScriptDataValueBool(&b, "hasKeyframes", flv->video.nkeyframes != 0 ? 1 : 0); length++;
+	writeBufferFLVScriptDataValueBool(&b, "hasKeyframes", flv->keyframes.nkeyframes != 0 ? 1 : 0); length++;
 	writeBufferFLVScriptDataValueBool(&b, "hasVideo", flv->hasvideo); length++;
 	writeBufferFLVScriptDataValueBool(&b, "hasAudio", flv->hasaudio); length++;
 	writeBufferFLVScriptDataValueBool(&b, "hasMetadata", 1); length++;
@@ -1118,21 +1121,21 @@ onmetadatapass:
 	writeBufferFLVScriptDataValueDouble(&b, "filesize", (double)flv->filesize); length++;
 	writeBufferFLVScriptDataValueDouble(&b, "lasttimestamp", (double)flv->lasttimestamp / 1000.0); length++;
 
-	if(flv->video.nkeyframes != 0) {
-		writeBufferFLVScriptDataValueDouble(&b, "lastkeyframetimestamp", (double)flv->video.lastkeyframetimestamp / 1000.0); length++;
-		writeBufferFLVScriptDataValueDouble(&b, "lastkeyframelocation", (double)flv->video.lastkeyframelocation); length++;
+	if(flv->keyframes.nkeyframes != 0) {
+		writeBufferFLVScriptDataValueDouble(&b, "lastkeyframetimestamp", (double)flv->keyframes.lastkeyframetimestamp / 1000.0); length++;
+		writeBufferFLVScriptDataValueDouble(&b, "lastkeyframelocation", (double)flv->keyframes.lastkeyframelocation); length++;
 
 		writeBufferFLVScriptDataVariableArray(&b, "keyframes"); length++;
 
-			writeBufferFLVScriptDataValueArray(&b, "filepositions", flv->video.nkeyframes);
+			writeBufferFLVScriptDataValueArray(&b, "filepositions", flv->keyframes.nkeyframes);
 
-			for(i = 0; i < flv->video.nkeyframes; i++)
-				writeBufferFLVScriptDataValueDouble(&b, NULL, (double)flv->video.keyframelocations[i]);
+			for(i = 0; i < flv->keyframes.nkeyframes; i++)
+				writeBufferFLVScriptDataValueDouble(&b, NULL, (double)flv->keyframes.keyframelocations[i]);
 
-			writeBufferFLVScriptDataValueArray(&b, "times", flv->video.nkeyframes);
+			writeBufferFLVScriptDataValueArray(&b, "times", flv->keyframes.nkeyframes);
 
-			for(i = 0; i < flv->video.nkeyframes; i++)
-				writeBufferFLVScriptDataValueDouble(&b, NULL, (double)flv->video.keyframetimestamps[i] / 1000.0);
+			for(i = 0; i < flv->keyframes.nkeyframes; i++)
+				writeBufferFLVScriptDataValueDouble(&b, NULL, (double)flv->keyframes.keyframetimestamps[i] / 1000.0);
 
 		writeBufferFLVScriptDataVariableArrayEnd(&b);
 	}
@@ -1193,7 +1196,7 @@ int createFLVEventOnLastKeyframe(FLV_t *flv) {
 	// Write the onLastKeyframe tag
 	bufferReset(&flv->onlastkeyframe);
 
-	writeBufferFLVScriptDataTag(&flv->onlastkeyframe, flv->video.lastkeyframetimestamp - 1, b.used);
+	writeBufferFLVScriptDataTag(&flv->onlastkeyframe, flv->keyframes.lastkeyframetimestamp - 1, b.used);
 	bufferAppendBuffer(&flv->onlastkeyframe, &b);
 	writeBufferFLVPreviousTagSize(&flv->onlastkeyframe, flv->onlastkeyframe.used);
 
@@ -2137,7 +2140,7 @@ void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile, FLV_t *
 	else
 		fprintf(fp, "<flv name=\"%s\">\n", infile);
 
-	fprintf(fp, "<hasKeyframes>%s</hasKeyframes>\n", (flv->video.nkeyframes != 0) ? "true" : "false");
+	fprintf(fp, "<hasKeyframes>%s</hasKeyframes>\n", (flv->keyframes.nkeyframes != 0) ? "true" : "false");
 	fprintf(fp, "<hasVideo>%s</hasVideo>\n", (flv->hasvideo != 0) ? "true" : "false");
 	fprintf(fp, "<hasAudio>%s</hasAudio>\n", (flv->hasaudio != 0) ? "true" : "false");
 	fprintf(fp, "<hasMetadata>true</hasMetadata>\n");
@@ -2164,21 +2167,21 @@ void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile, FLV_t *
 
 	fprintf(fp, "<lasttimestamp>%.2f</lasttimestamp>\n", (double)flv->lasttimestamp / 1000.0);
 	fprintf(fp, "<lastvideoframetimestamp>%.2f</lastvideoframetimestamp>\n", (double)flv->video.lasttimestamp / 1000.0);
-	fprintf(fp, "<lastkeyframetimestamp>%.2f</lastkeyframetimestamp>\n", (double)flv->video.lastkeyframetimestamp / 1000.0);
-	fprintf(fp, "<lastkeyframelocation>%" PRIu64 "</lastkeyframelocation>\n", (uint64_t)flv->video.lastkeyframelocation);
+	fprintf(fp, "<lastkeyframetimestamp>%.2f</lastkeyframetimestamp>\n", (double)flv->keyframes.lastkeyframetimestamp / 1000.0);
+	fprintf(fp, "<lastkeyframelocation>%" PRIu64 "</lastkeyframelocation>\n", (uint64_t)flv->keyframes.lastkeyframelocation);
 
 	if(flv->options.xmlomitkeyframes == 0) {
 		fprintf(fp, "<keyframes>\n");
 		fprintf(fp, "<times>\n");
 
-		for(i = 0; i < flv->video.nkeyframes; i++)
-			fprintf(fp, "<value id=\"%" PRIu64 "\">%.2f</value>\n", (uint64_t)i, (double)flv->video.keyframetimestamps[i] / 1000.0);
+		for(i = 0; i < flv->keyframes.nkeyframes; i++)
+			fprintf(fp, "<value id=\"%" PRIu64 "\">%.2f</value>\n", (uint64_t)i, (double)flv->keyframes.keyframetimestamps[i] / 1000.0);
 
 		fprintf(fp, "</times>\n");
 		fprintf(fp, "<filepositions>\n");
 
-		for(i = 0; i < flv->video.nkeyframes; i++)
-			fprintf(fp, "<value id=\"%" PRIu64 "\">%" PRIu64 "</value>\n", (uint64_t)i, (uint64_t)flv->video.keyframelocations[i]);
+		for(i = 0; i < flv->keyframes.nkeyframes; i++)
+			fprintf(fp, "<value id=\"%" PRIu64 "\">%" PRIu64 "</value>\n", (uint64_t)i, (uint64_t)flv->keyframes.keyframelocations[i]);
 
 		fprintf(fp, "</filepositions>\n");
 		fprintf(fp, "</keyframes>\n");
