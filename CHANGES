@@ -1,5 +1,6 @@
 yamdi-1.8:
-   * [Add] replace input file with output file with -w
+   * [Add] Replace input file with output file with -w
+   * [Add] Keyframes for audio only files with -a
 
 yamdi-1.7:
    * [Fix] off-by-one bug while indexing an FLV file

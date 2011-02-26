@@ -50,7 +50,7 @@
 	#define ftello(stream) ftello64(stream)
 #endif
 
-#define YAMDI_VERSION			"1.7"
+#define YAMDI_VERSION			"1.8"
 
 #define YAMDI_OK			0
 #define YAMDI_ERROR			1
@@ -98,6 +98,7 @@ typedef struct {
 	unsigned int tagtype;
 	size_t datasize;		// Size of the data contained in this tag
 	int timestamp;
+	short keyframe;			// Is this tag a keyframe?
 
 	size_t tagsize;		// Size of the whole tag including header and data
 } FLVTag_t;
@@ -129,8 +130,10 @@ typedef struct {
 		double datarate;		// datasize / duration
 		uint64_t datasize;		// Size of the audio data
 		uint64_t size;			// Size of the audio tags (header + data)
+		int keyframerate;		// Store every x tags a keyframe. Only used for -a
 
 		int lasttimestamp;
+		size_t lastframeindex;
 	} audio;
 
 	short hasvideo;
@@ -150,6 +153,7 @@ typedef struct {
 		uint64_t size;			// Size of the video tags (header + data)
 
 		int lasttimestamp;
+		size_t lastframeindex;
 	} video;
 
 	short haskeyframes;
@@ -177,7 +181,7 @@ typedef struct {
 		short addonlastkeyframe;	// -k
 		short addonlastsecond;		// -s, -l (deprecated)
 		short addonmetadata;		// defaults to 1, -M does change it
-		short addkeyframes;		// -a
+		short addaudiokeyframes;	// -a
 
 		short keepmetadata;		// -m (not implemented)
 		short stripmetadata;		// -M
@@ -296,7 +300,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, "i:o:x:t:c:lskMXwh")) != -1) {
+	while((c = getopt(argc, argv, "i:o:x:t:c:lskaMXwh")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -319,6 +323,9 @@ int main(int argc, char **argv) {
 				break;
 			case 'k':
 				flv.options.addonlastkeyframe = 1;
+				break;
+			case 'a':
+				flv.options.addaudiokeyframes = 1;
 				break;
 /*
 			case 'm':
@@ -693,8 +700,8 @@ int freeFLV(FLV_t *flv) {
 }
 
 int analyzeFLV(FLV_t *flv, FILE *fp) {
-	int keyframe, rv;
-	size_t i;
+	int rv;
+	size_t i, index;
 	unsigned char flags;
 	FLVTag_t *flvtag;
 
@@ -713,6 +720,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			flv->audio.size += flvtag->tagsize;
 
 			flv->audio.lasttimestamp = flvtag->timestamp;
+			flv->audio.lastframeindex = i;
 
 			readFLVTagData(&flags, 1, flvtag, fp);
 
@@ -750,12 +758,13 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			flv->video.size += flvtag->tagsize;
 
 			flv->video.lasttimestamp = flvtag->timestamp;
+			flv->video.lastframeindex = i;
 
 			readFLVTagData(&flags, 1, flvtag, fp);
 
 			// Keyframes
-			keyframe = (flags >> 4) & 0xf;
-			if(keyframe == 1) {
+			flvtag->keyframe = (flags >> 4) & 0xf;
+			if(flvtag->keyframe == 1) {
 				flv->canseektoend = 1;
 				flv->keyframes.nkeyframes++;
 				flv->keyframes.lastkeyframeindex = i;
@@ -763,7 +772,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			else
 				flv->canseektoend = 0;
 
-			if(keyframe == 1 && flv->video.analyzed == 0) {
+			if(flvtag->keyframe == 1 && flv->video.analyzed == 0) {
 				// Video Codec
 				flv->video.codecid = flags & 0xf;
 
@@ -839,6 +848,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 #ifdef DEBUG
 	fprintf(stderr, "[FLV] audio.codecid = %d\n", flv->audio.codecid);
 	fprintf(stderr, "[FLV] audio.lasttimestamp = %d ms\n", flv->audio.lasttimestamp);
+	fprintf(stderr, "[FLV] audio.lastframeindex = %d\n", flv->audio.lastframeindex);
 	fprintf(stderr, "[FLV] audio.ntags = %d\n", flv->audio.ntags);
 	fprintf(stderr, "[FLV] audio.datasize = %" PRIu64 " kb\n", flv->audio.datasize);
 	fprintf(stderr, "[FLV] audio.datarate = %f kbit/s\n", flv->audio.datarate);
@@ -855,9 +865,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 #ifdef DEBUG
 	fprintf(stderr, "[FLV] video.codecid = %d\n", flv->video.codecid);
 	fprintf(stderr, "[FLV] video.lasttimestamp = %d ms\n", flv->video.lasttimestamp);
+	fprintf(stderr, "[FLV] video.lastframeindex = %d\n", flv->video.lastframeindex);
 	fprintf(stderr, "[FLV] video.ntags = %d\n", flv->video.ntags);
-	fprintf(stderr, "[FLV] keyframes.nkeyframes = %d\n", flv->keyframes.nkeyframes);
-	fprintf(stderr, "[FLV] keyframes.lastkeyframeindex = %d\n", flv->keyframes.lastkeyframeindex);
 	fprintf(stderr, "[FLV] video.framerate = %f fps\n", flv->video.framerate);
 	fprintf(stderr, "[FLV] video.datasize = %" PRIu64 " kb\n", flv->video.datasize);
 	fprintf(stderr, "[FLV] video.datarate = %f kbit/s\n", flv->video.datarate);
@@ -872,8 +881,55 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	fprintf(stderr, "[FLV] datasize = %" PRIu64 " kb\n", flv->datasize);
 #endif
 
+	// Fake keyframes if we have only audio and the corresponding option has been set
+	if(flv->options.addaudiokeyframes == 1 && flv->hasaudio == 1 && flv->hasvideo == 0) {
+		// Add a keyframe at least every 0.5 seconds
+		flv->audio.keyframerate = (int)(500.0 / (double)flv->audio.lasttimestamp * (double)flv->audio.ntags);
+
+		// If every frame is longer than 0.5 seconds then add every frame a keyframe
+		if(flv->audio.keyframerate == 0)
+			flv->audio.keyframerate = 1;
+
+#ifdef DEBUG
+		fprintf(stderr, "[FLV] audio.keyframerate = %d\n", flv->audio.keyframerate);
+#endif
+
+		// Mark all audio tags that should be considered as a keyframe
+		index = 0;
+		for(i = 0; i < flv->index.nflvtags; i++) {
+			flvtag = &flv->index.flvtag[i];
+
+			if(flvtag->tagtype == FLV_TAG_AUDIO) {
+				if((index % flv->audio.keyframerate) == 0)
+					flvtag->keyframe = 1;
+
+				index++;
+			}
+		}
+
+		flv->keyframes.nkeyframes = flv->audio.ntags / flv->audio.keyframerate;
+
+		// Add an extra keyframe for the last frame
+		if(flv->index.flvtag[flv->audio.lastframeindex].keyframe == 0) {
+			flv->index.flvtag[flv->audio.lastframeindex].keyframe = 1;
+			flv->keyframes.nkeyframes++;
+		}
+
+		flv->canseektoend = 1;
+		flv->keyframes.lastkeyframeindex = flv->audio.lastframeindex;
+	}
+	else
+		flv->options.addaudiokeyframes = 0;
+
+#ifdef DEBUG
+	fprintf(stderr, "[FLV] keyframes.nkeyframes = %d\n", flv->keyframes.nkeyframes);
+	fprintf(stderr, "[FLV] keyframes.lastkeyframeindex = %d\n", flv->keyframes.lastkeyframeindex);
+#endif
+
 	// Allocate some memory for the keyframe index
 	if(flv->keyframes.nkeyframes != 0) {
+		flv->haskeyframes = 1;
+
 		flv->keyframes.keyframelocations = (off_t *)calloc(flv->keyframes.nkeyframes, sizeof(off_t));
 		if(flv->keyframes.keyframelocations == NULL)
 			return YAMDI_OUT_OF_MEMORY;
@@ -887,9 +943,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 }
 
 int finalizeFLV(FLV_t *flv, FILE *fp) {
-	int keyframe;
 	size_t i, index;
-	unsigned char flags;
 	FLVTag_t *flvtag;
 
 	// 2 passes
@@ -933,27 +987,26 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 			flv->filesize += flv->onlastsecond.used;
 
 		// Update the keyframe index only if there are keyframes ...
-		if(flv->keyframes.nkeyframes != 0 && flvtag->tagtype == FLV_TAG_VIDEO) {
-			readFLVTagData(&flags, 1, flvtag, fp);
+		if(flv->haskeyframes == 1) {
+			if(flvtag->tagtype == FLV_TAG_VIDEO || flvtag->tagtype == FLV_TAG_AUDIO) {
+				// Keyframes
+				if(flvtag->keyframe == 1) {
+					// Take care of the onlastkeyframe event
+					if(flv->options.addonlastkeyframe == 1 && flv->keyframes.lastkeyframeindex == i)
+						flv->filesize += flv->onlastkeyframe.used;
 
-			// Keyframes
-			keyframe = (flags >> 4) & 0xf;
-			if(keyframe == 1) {
-				// Take care of the onlastkeyframe event
-				if(flv->options.addonlastkeyframe == 1 && flv->keyframes.lastkeyframeindex == i)
-					flv->filesize += flv->onlastkeyframe.used;
+					flv->keyframes.keyframelocations[index] = flv->filesize;
+					flv->keyframes.keyframetimestamps[index] = flvtag->timestamp;
 
-				flv->keyframes.keyframelocations[index] = flv->filesize;
-				flv->keyframes.keyframetimestamps[index] = flvtag->timestamp;
-
-				index++;
+					index++;
+				}
 			}
 		}
 
 		flv->filesize += flvtag->tagsize + FLV_SIZE_PREVIOUSTAGSIZE;
 	}
 
-	if(flv->keyframes.nkeyframes != 0) {
+	if(flv->haskeyframes == 1) {
 		flv->keyframes.lastkeyframetimestamp = flv->keyframes.keyframetimestamps[flv->keyframes.nkeyframes - 1];
 		flv->keyframes.lastkeyframelocation = flv->keyframes.keyframelocations[flv->keyframes.nkeyframes - 1];
 	}
@@ -1097,7 +1150,7 @@ onmetadatapass:
 	}
 
 	writeBufferFLVScriptDataValueString(&b, "metadatacreator", "Yet Another Metadata Injector for FLV - Version " YAMDI_VERSION "\0"); length++;
-	writeBufferFLVScriptDataValueBool(&b, "hasKeyframes", flv->keyframes.nkeyframes != 0 ? 1 : 0); length++;
+	writeBufferFLVScriptDataValueBool(&b, "hasKeyframes", flv->haskeyframes); length++;
 	writeBufferFLVScriptDataValueBool(&b, "hasVideo", flv->hasvideo); length++;
 	writeBufferFLVScriptDataValueBool(&b, "hasAudio", flv->hasaudio); length++;
 	writeBufferFLVScriptDataValueBool(&b, "hasMetadata", 1); length++;
@@ -1133,7 +1186,7 @@ onmetadatapass:
 	writeBufferFLVScriptDataValueDouble(&b, "filesize", (double)flv->filesize); length++;
 	writeBufferFLVScriptDataValueDouble(&b, "lasttimestamp", (double)flv->lasttimestamp / 1000.0); length++;
 
-	if(flv->keyframes.nkeyframes != 0) {
+	if(flv->haskeyframes == 1) {
 		writeBufferFLVScriptDataValueDouble(&b, "lastkeyframetimestamp", (double)flv->keyframes.lastkeyframetimestamp / 1000.0); length++;
 		writeBufferFLVScriptDataValueDouble(&b, "lastkeyframelocation", (double)flv->keyframes.lastkeyframelocation); length++;
 
@@ -2152,7 +2205,7 @@ void writeXMLMetadata(FILE *fp, const char *infile, const char *outfile, FLV_t *
 	else
 		fprintf(fp, "<flv name=\"%s\">\n", infile);
 
-	fprintf(fp, "<hasKeyframes>%s</hasKeyframes>\n", (flv->keyframes.nkeyframes != 0) ? "true" : "false");
+	fprintf(fp, "<hasKeyframes>%s</hasKeyframes>\n", (flv->haskeyframes != 0) ? "true" : "false");
 	fprintf(fp, "<hasVideo>%s</hasVideo>\n", (flv->hasvideo != 0) ? "true" : "false");
 	fprintf(fp, "<hasAudio>%s</hasAudio>\n", (flv->hasaudio != 0) ? "true" : "false");
 	fprintf(fp, "<hasMetadata>true</hasMetadata>\n");
@@ -2214,7 +2267,7 @@ void printUsage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skMXw] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skMXaw] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -2250,6 +2303,9 @@ void printUsage(void) {
 	fprintf(stderr, "\t-M\tStrip all metadata from the FLV. The -s and -k options will be ignored.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-a\tAdd keyframes every 500ms if there is only audio. This option will be\n");
+	fprintf(stderr, "\t\tignored if there is a video stream.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-w\tReplace the input file with the output file. -i and -o are required\n");
 	fprintf(stderr, "\t\tto be different files otherwise this option will be ignored.\n");

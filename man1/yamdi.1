@@ -2,7 +2,7 @@
 .\" First parameter, NAME, should be all caps
 .\" Second parameter, SECTION, should be 1-8, maybe w/ subsection
 .\" other parameters are allowed: see man(7), man(1)
-.TH YAMDI 1 "October 17, 2010"
+.TH YAMDI 1 "February 26, 2011"
 .\" Please adjust this date whenever revising the manpage.
 .\"
 .\" Some roff macros, for reference:
@@ -19,7 +19,7 @@
 yamdi \- yet another metadata injector (flv)
 .SH SYNOPSIS
 .B yamdi
-\-i input file [\-x xml file | \-o output file [\-x xml file]] [-t temporary file] [\-c creator] [\-skMXw] [\-h]
+\-i input file [\-x xml file | \-o output file [\-x xml file]] [-t temporary file] [\-c creator] [\-skMXaw] [\-h]
 .SH DESCRIPTION
 yamdi stands for Yet Another MetaData Injector and is a metadata injector for FLV files. It adds the onMetaData event to your FLV files.
 .SH OPTIONS
@@ -52,7 +52,10 @@ Strip all metadata from the FLV. The -s and -k options will be ignored.
 .B \-X
 Omit the keyframes tag in the XML output.
 .TP
-.B \-w 
+.B \-a
+Add keyframes every 500ms if there is only audio. This option will be ignored if there is a video stream.
+.TP
+.B \-w
 Replace the input file with the output file. -i and -o are required to be different files otherwise this option will be ignored.
 .TP
 .B \-h
