@@ -892,9 +892,11 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 		// Add a keyframe at least every x milliseconds
 		flv->audio.keyframerate = (int)((double)flv->audio.keyframedistance / (double)flv->audio.lasttimestamp * (double)flv->audio.ntags);
 
-		// If every frame is longer than 0.5 seconds then add every frame a keyframe
+		// If every frame is longer than the intervalthen add every frame a keyframe
 		if(flv->audio.keyframerate == 0)
 			flv->audio.keyframerate = 1;
+		else if(flv->audio.keyframerate >= flv->audio.ntags)
+			flv->audio.keyframerate = flv->audio.ntags;
 
 #ifdef DEBUG
 		fprintf(stderr, "[FLV] audio.keyframerate = %d\n", flv->audio.keyframerate);
@@ -906,14 +908,14 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			flvtag = &flv->index.flvtag[i];
 
 			if(flvtag->tagtype == FLV_TAG_AUDIO) {
-				if((index % flv->audio.keyframerate) == 0)
+				if((index % flv->audio.keyframerate) == 0) {
 					flvtag->keyframe = 1;
+					flv->keyframes.nkeyframes++;
+				}
 
 				index++;
 			}
 		}
-
-		flv->keyframes.nkeyframes = flv->audio.ntags / flv->audio.keyframerate;
 
 		// Add an extra keyframe for the last frame
 		if(flv->index.flvtag[flv->audio.lastframeindex].keyframe == 0) {
