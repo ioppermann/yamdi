@@ -131,6 +131,7 @@ typedef struct {
 		uint64_t datasize;		// Size of the audio data
 		uint64_t size;			// Size of the audio tags (header + data)
 		int keyframerate;		// Store every x tags a keyframe. Only used for -a
+		int keyframedistance;		// The time between two keyframes. Only used for -a
 
 		int lasttimestamp;
 		size_t lastframeindex;
@@ -300,7 +301,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, "i:o:x:t:c:lskaMXwh")) != -1) {
+	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwh")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -326,6 +327,11 @@ int main(int argc, char **argv) {
 				break;
 			case 'a':
 				flv.options.addaudiokeyframes = 1;
+				flv.audio.keyframedistance = (int)strtol(optarg, (char **)NULL, 10);
+				if(flv.audio.keyframedistance <= 0) {
+					flv.audio.keyframedistance = 0;
+					flv.options.addaudiokeyframes = 0;
+				}
 				break;
 /*
 			case 'm':
@@ -883,8 +889,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 
 	// Fake keyframes if we have only audio and the corresponding option has been set
 	if(flv->options.addaudiokeyframes == 1 && flv->hasaudio == 1 && flv->hasvideo == 0) {
-		// Add a keyframe at least every 0.5 seconds
-		flv->audio.keyframerate = (int)(500.0 / (double)flv->audio.lasttimestamp * (double)flv->audio.ntags);
+		// Add a keyframe at least every x milliseconds
+		flv->audio.keyframerate = (int)((double)flv->audio.keyframedistance / (double)flv->audio.lasttimestamp * (double)flv->audio.ntags);
 
 		// If every frame is longer than 0.5 seconds then add every frame a keyframe
 		if(flv->audio.keyframerate == 0)
@@ -2267,7 +2273,7 @@ void printUsage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skMXaw] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-a interval] [-skMXw] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -2291,7 +2297,8 @@ void printUsage(void) {
 	fprintf(stderr, "\t-c\tA string that will be written into the creator tag.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-s, -l\tAdd the onLastSecond event.\n");
-	fprintf(stderr, "\t\tThe -l option is deprecated and will be removed in a future version.\n");
+	fprintf(stderr, "\t\tThe -l option is deprecated and will be removed in a future\n");
+	fprintf(stderr, "\t\tversion.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-k\tAdd the onLastKeyframe event.\n");
 	fprintf(stderr, "\n");
@@ -2300,15 +2307,18 @@ void printUsage(void) {
 	fprintf(stderr, "\t\tMetadata that yamdi does not add is left untouched, e.g. onCuepoint.\n");
 	fprintf(stderr, "\n");
 */
-	fprintf(stderr, "\t-M\tStrip all metadata from the FLV. The -s and -k options will be ignored.\n");
+	fprintf(stderr, "\t-M\tStrip all metadata from the FLV. The -s and -k options will\n");
+	fprintf(stderr, "\t\tbe ignored.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "\t-a\tAdd keyframes every 500ms if there is only audio. This option will be\n");
-	fprintf(stderr, "\t\tignored if there is a video stream.\n");
+	fprintf(stderr, "\t-a\tTime in milliseconds between keyframes if there is only audio.\n");
+	fprintf(stderr, "\t\tThis option will be ignored if there is a video stream. No\n");
+	fprintf(stderr, "\t\tkeyframes will be added if this option is omitted.\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "\t-w\tReplace the input file with the output file. -i and -o are required\n");
-	fprintf(stderr, "\t\tto be different files otherwise this option will be ignored.\n");
+	fprintf(stderr, "\t-w\tReplace the input file with the output file. -i and -o are\n");
+	fprintf(stderr, "\t\trequired to be different files otherwise this option will be\n");
+	fprintf(stderr, "\t\tignored.\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-h\tThis description.\n");
 	fprintf(stderr, "\n");
