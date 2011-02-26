@@ -1,3 +1,6 @@
+yamdi-1.8:
+   * [Add] replace input file with output file with -w
+
 yamdi-1.7:
    * [Fix] off-by-one bug while indexing an FLV file
 

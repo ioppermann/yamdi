@@ -19,7 +19,7 @@
 yamdi \- yet another metadata injector (flv)
 .SH SYNOPSIS
 .B yamdi
-\-i input file [\-x xml file | \-o output file [\-x xml file]] [-t temporary file] [\-c creator] [\-skMX] [\-h]
+\-i input file [\-x xml file | \-o output file [\-x xml file]] [-t temporary file] [\-c creator] [\-skMXw] [\-h]
 .SH DESCRIPTION
 yamdi stands for Yet Another MetaData Injector and is a metadata injector for FLV files. It adds the onMetaData event to your FLV files.
 .SH OPTIONS
@@ -51,6 +51,9 @@ Strip all metadata from the FLV. The -s and -k options will be ignored.
 .TP
 .B \-X
 Omit the keyframes tag in the XML output.
+.TP
+.B \-w 
+Replace the input file with the output file. -i and -o are required to be different files otherwise this option will be ignored.
 .TP
 .B \-h
 Show summary of options.

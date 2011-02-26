@@ -1,7 +1,7 @@
 /*
  * yamdi.c
  *
- * Copyright (c) 2007-2010, Ingo Oppermann
+ * Copyright (c) 2007-2011, Ingo Oppermann
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -62,6 +62,7 @@
 #define YAMDI_INVALID_PREVIOUSTAGSIZE	7
 #define YAMDI_OUT_OF_MEMORY		8
 #define YAMDI_H264_USELESS_NALU		9
+#define YAMDI_RENAME_OUTPUT		10
 
 #define FLV_SIZE_HEADER			9
 #define FLV_SIZE_PREVIOUSTAGSIZE	4
@@ -176,11 +177,14 @@ typedef struct {
 		short addonlastkeyframe;	// -k
 		short addonlastsecond;		// -s, -l (deprecated)
 		short addonmetadata;		// defaults to 1, -M does change it
+		short addkeyframes;		// -a
 
 		short keepmetadata;		// -m (not implemented)
 		short stripmetadata;		// -M
 
 		short xmlomitkeyframes;		// -X
+
+		short overwriteinput;		// -w
 	} options;
 
 	buffer_t onmetadata;
@@ -292,7 +296,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, "i:o:x:t:c:lskMXh")) != -1) {
+	while((c = getopt(argc, argv, "i:o:x:t:c:lskMXwh")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -327,6 +331,9 @@ int main(int argc, char **argv) {
 			case 'X':
 				flv.options.xmlomitkeyframes = 1;
 				break;
+			case 'w':
+				flv.options.overwriteinput = 1;
+				break;
 			case 'h':
 				printUsage();
 				exit(YAMDI_ERROR);
@@ -347,17 +354,17 @@ int main(int argc, char **argv) {
 	}
 
 	if(infile == NULL) {
-		fprintf(stderr, "Please provide an input file. -h for help.\n");
+		fprintf(stderr, "Please use -i to provide an input file. -h for help.\n");
 		exit(YAMDI_ERROR);
 	}
 
 	if(outfile == NULL && xmloutfile == NULL) {
-		fprintf(stderr, "Please provide at least one output file. -h for help.\n");
+		fprintf(stderr, "Please use -o or -x to provide at least one output file. -h for help.\n");
 		exit(YAMDI_ERROR);
 	}
 
 	if(tempfile == NULL && !strcmp(infile, "-")) {
-		fprintf(stderr, "Please specify a temporary file. -h for help.\n");
+		fprintf(stderr, "Please use -t to specify a temporary file. -h for help.\n");
 		exit(YAMDI_ERROR);
 	}
 
@@ -534,8 +541,6 @@ int main(int argc, char **argv) {
 
 	fclose(fp_infile);
 
-	freeFLV(&flv);
-
 	// Remove the input file if it is the temporary file
 	if(unlink_infile == 1)
 		unlink(infile);
@@ -545,6 +550,13 @@ int main(int argc, char **argv) {
 
 	if(fp_xmloutfile != NULL && fp_xmloutfile != stdout)
 		fclose(fp_xmloutfile);
+
+	if(flv.options.overwriteinput == 1 && strcmp(infile, "-") && outfile != NULL && strcmp(outfile, "-")) {
+		if(rename(outfile, infile) != 0)
+			exit(YAMDI_RENAME_OUTPUT);
+	}
+
+	freeFLV(&flv);
 
 	return YAMDI_OK;
 }
@@ -2202,7 +2214,7 @@ void printUsage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skMX] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-skMXw] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -2239,11 +2251,14 @@ void printUsage(void) {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-X\tOmit the keyframes tag in the XML output.\n");
 	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-w\tReplace the input file with the output file. -i and -o are required\n");
+	fprintf(stderr, "\t\tto be different files otherwise this option will be ignored.\n");
+	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-h\tThis description.\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "COPYRIGHT\n");
-	fprintf(stderr, "\t(c) 2010 Ingo Oppermann\n");
+	fprintf(stderr, "\t(c) 2010-2011 Ingo Oppermann\n");
 	fprintf(stderr, "\n");
 	return;
 }
