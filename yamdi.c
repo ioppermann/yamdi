@@ -1429,24 +1429,32 @@ int analyzeFLVScreenVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
 }
 
 int analyzeFLVVP62VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
-	int offset = 2;
+	int offset = 3;
 	unsigned char *buffer, data[9];
 
 	readFLVTagData(data, sizeof(data), flvtag, fp);
 	// Skip the VIDEODATA header
 	buffer = &data[1];
 
-	// if frame_mode==0, there's an extra byte of data.
-	if ((buffer[1] >> 7) == 0)
-		offset += 1;
+	// VP6FLVVIDEOPACKET (why not use render_y and render_x as provided in the vp6 stream?)
+	int hadjust = ((buffer[0] >> 4) & 0x0f);
+	int vadjust = (buffer[0] & 0x0f);
 
-	// if marker==1 or version2==0 (from frame mode data byte), there are 2 more extra data bytes
-	if ((buffer[1] & 1) == 1 || ((offset > 2) && ((buffer[2] >> 1) & 3) == 0))
+	// Raw vp6 video data (http://wiki.multimedia.cx/index.php?title=VP62)
+	int frame_mode = ((buffer[1] >> 7) & 0x01);
+	int marker = (buffer[1] & 0x01);
+
+	if(frame_mode != 0)	// We need an iframe
+		return YAMDI_ERROR;
+
+	int version2 = ((buffer[2] >> 1) & 0x03);
+
+	if(marker == 1 && version2 == 0)
 		offset += 2;
 
-	// Now offset points to the resolution values: [h_mb,w_mb,h_disp,w_disp]
-	flv->video.width = buffer[offset + 3] * 16 - (buffer[0] >> 4);
-	flv->video.height = buffer[offset + 2] * 16 - (buffer[0] & 0x0f);
+	// Now offset points to the resolution values: [dim_y, dim_x, render_y, render_x]
+	flv->video.height = (buffer[offset] * 16) - vadjust;
+	flv->video.width = (buffer[offset + 1] * 16) - hadjust;
 
 	return YAMDI_OK;
 }
