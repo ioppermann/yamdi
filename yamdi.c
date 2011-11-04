@@ -1436,25 +1436,26 @@ int analyzeFLVVP62VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
 	// Skip the VIDEODATA header
 	buffer = &data[1];
 
-	// VP6FLVVIDEOPACKET (why not use render_y and render_x as provided in the vp6 stream?)
+	// VP6FLVVIDEOPACKET (as described in the SWF Specs v10, page 249)
 	int hadjust = ((buffer[0] >> 4) & 0x0f);
 	int vadjust = (buffer[0] & 0x0f);
 
-	// Raw vp6 video data (http://wiki.multimedia.cx/index.php?title=VP62)
+	// Raw vp6 video data (http://wiki.multimedia.cx/index.php?title=On2_VP6)
 	int frame_mode = ((buffer[1] >> 7) & 0x01);
-	int marker = (buffer[1] & 0x01);
 
 	if(frame_mode != 0)	// We need an iframe
 		return YAMDI_ERROR;
 
+	int marker = (buffer[1] & 0x01);	// Without checking this value, we support all VP6 variants
 	int version2 = ((buffer[2] >> 1) & 0x03);
 
-	if(marker == 1 && version2 == 0)
+	if(marker == 1 || version2 == 0)
 		offset += 2;
 
 	// Now offset points to the resolution values: [dim_y, dim_x, render_y, render_x]
-	flv->video.height = (buffer[offset] * 16) - vadjust;
-	flv->video.width = (buffer[offset + 1] * 16) - hadjust;
+	// Values represent macroblocks
+	flv->video.height = (buffer[offset + 2] * 16) - vadjust;
+	flv->video.width = (buffer[offset + 3] * 16) - hadjust;
 
 	return YAMDI_OK;
 }
