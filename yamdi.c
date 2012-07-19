@@ -2063,8 +2063,10 @@ unsigned int readCodedUE(bitstream_t *bitstream, const char *name) {
 	int bit;
 	unsigned int codeNum = 0;
 
-	for(bit = 0; bit == 0; leadingZeroBits++)
+	for(bit = 0; bit == 0; leadingZeroBits++) {
 		bit = readBit(bitstream);
+		if (bitstream->byte == bitstream->length) break;
+	}
 
 	codeNum = ((1 << leadingZeroBits) - 1 + (unsigned int)readBits(bitstream, leadingZeroBits));
 
