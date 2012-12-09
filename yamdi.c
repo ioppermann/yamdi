@@ -1,7 +1,7 @@
 /*
  * yamdi.c
  *
- * Copyright (c) 2007-2011, Ingo Oppermann
+ * Copyright (c) 2007+, Ingo Oppermann
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -63,6 +63,7 @@
 #define YAMDI_OUT_OF_MEMORY		8
 #define YAMDI_H264_USELESS_NALU		9
 #define YAMDI_RENAME_OUTPUT		10
+#define YAMDI_INVALID_TAGTYPE		11
 
 #define FLV_SIZE_HEADER			9
 #define FLV_SIZE_PREVIOUSTAGSIZE	4
@@ -1792,6 +1793,19 @@ int readFLVTag(FLVTag_t *flvtag, off_t offset, FILE *fp) {
 		return YAMDI_READ_ERROR;
 
 	flvtag->tagtype = FLV_UI8(buffer);
+
+	// Assuming only known tags. Otherwise we only process the
+	// input file up to this point. It is not possible to detect
+	// where the next valid tag could be.
+	switch(flvtag->tagtype) {
+		case FLV_TAG_VIDEO:
+		case FLV_TAG_AUDIO:
+		case FLV_TAG_SCRIPTDATA:
+			break;
+		default:
+			return YAMDI_INVALID_TAGTYPE;
+	}
+
 	flvtag->datasize = (size_t)FLV_UI24(&buffer[1]);
 	flvtag->timestamp = FLV_TIMESTAMP(&buffer[4]);
 
@@ -2368,7 +2382,7 @@ void printUsage(void) {
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "COPYRIGHT\n");
-	fprintf(stderr, "\t(c) 2010-2011 Ingo Oppermann\n");
+	fprintf(stderr, "\t(c) 2007+ Ingo Oppermann\n");
 	fprintf(stderr, "\n");
 	return;
 }
