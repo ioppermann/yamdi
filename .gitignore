@@ -1,4 +1,5 @@
 yamdi
-samples/
+/samples/
 *.flv
 *.exe
+*.xml
