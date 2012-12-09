@@ -225,8 +225,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp);
 int analyzeFLVH263VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
 int analyzeFLVH264VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
 int analyzeFLVScreenVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
-int analyzeFLVVP62VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
-int analyzeFLVVP62AlphaVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
+int analyzeFLVVP6VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
+int analyzeFLVVP6AlphaVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp);
 
 int createFLVEvents(FLV_t *flv);
 int createFLVEventOnMetaData(FLV_t *flv);
@@ -790,10 +790,10 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 						rv = analyzeFLVScreenVideoPacket(flv, flvtag, fp);
 						break;
 					case FLV_PACKET_VP6VIDEO:
-						rv = analyzeFLVVP62VideoPacket(flv, flvtag, fp);
+						rv = analyzeFLVVP6VideoPacket(flv, flvtag, fp);
 						break;
 					case FLV_PACKET_VP6ALPHAVIDEO:
-						rv = analyzeFLVVP62AlphaVideoPacket(flv, flvtag, fp);
+						rv = analyzeFLVVP6AlphaVideoPacket(flv, flvtag, fp);
 						break;
 					case FLV_PACKET_SCREENV2VIDEO:
 						rv = analyzeFLVScreenVideoPacket(flv, flvtag, fp);
@@ -1428,15 +1428,26 @@ int analyzeFLVScreenVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
 	return YAMDI_OK;
 }
 
-int analyzeFLVVP62VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
-	int offset = 3;
-	unsigned char *buffer, data[9];
+int analyzeFLVVP6VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
+	int offset = 3;	// default buffer offset for dim_y
+	unsigned char *buffer, data[10];
 
 	readFLVTagData(data, sizeof(data), flvtag, fp);
+
+#if DEBUG
+	fprintf(stderr, "\n");
+
+	fprintf(stderr, "[VP6] ");
+	int i = 0;
+	for(i = 0; i < sizeof(data); i++)
+		fprintf(stderr, "%d=%d ", i, data[i]);
+	fprintf(stderr, "\n");
+#endif
+
 	// Skip the VIDEODATA header
 	buffer = &data[1];
 
-	// VP6FLVVIDEOPACKET (as described in the SWF Specs v10, page 249)
+	// VP6FLVVIDEOPACKET header (as described in the SWF Specs v10, page 249)
 	int hadjust = ((buffer[0] >> 4) & 0x0f);
 	int vadjust = (buffer[0] & 0x0f);
 
@@ -1447,20 +1458,40 @@ int analyzeFLVVP62VideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
 		return YAMDI_ERROR;
 
 	int marker = (buffer[1] & 0x01);	// Without checking this value, we support all VP6 variants
+
 	int version2 = ((buffer[2] >> 1) & 0x03);
 
+#if DEBUG
+	int version = ((buffer[2] >> 3) & 0x1f);
+	int interlace = (buffer[2] & 0x01);
+
+	fprintf(stderr, "[VP6] marker = %d\n", marker);
+	fprintf(stderr, "[VP6] version = %d\n", version);
+	fprintf(stderr, "[VP6] version2 = %d\n", version2);
+	fprintf(stderr, "[VP6] interlace = %d\n", interlace);
+#endif
+
+	// In these cases there are 2 more bytes that we have to skip
 	if(marker == 1 || version2 == 0)
 		offset += 2;
 
+#if DEBUG
+	fprintf(stderr, "[VP6] offset = %d\n", offset);
+	fprintf(stderr, "[VP6] dim_y = %d\n", buffer[offset]);
+	fprintf(stderr, "[VP6] dim_x = %d\n", buffer[offset + 1]);
+	fprintf(stderr, "[VP6] render_y = %d\n", buffer[offset + 2]);
+	fprintf(stderr, "[VP6] render_x = %d\n", buffer[offset + 3]);
+#endif
+
 	// Now offset points to the resolution values: [dim_y, dim_x, render_y, render_x]
 	// Values represent macroblocks
-	flv->video.height = (buffer[offset + 2] * 16) - vadjust;
-	flv->video.width = (buffer[offset + 3] * 16) - hadjust;
+	flv->video.height = (buffer[offset + 0] * 16) - vadjust;
+	flv->video.width = (buffer[offset + 1] * 16) - hadjust;
 
 	return YAMDI_OK;
 }
 
-int analyzeFLVVP62AlphaVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
+int analyzeFLVVP6AlphaVideoPacket(FLV_t *flv, FLVTag_t *flvtag, FILE *fp) {
 	unsigned char *buffer, data[9];
 
 	readFLVTagData(data, sizeof(data), flvtag, fp);
