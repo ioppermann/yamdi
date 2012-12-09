@@ -1,3 +1,7 @@
+yamdi-1.9:
+   * [Fix] VP6 width/height detection
+   * [Fix] Interpreting invalid data as FLV tag
+
 yamdi-1.8:
    * [Add] Replace input file with output file with -w
    * [Add] Keyframes for audio only files with -a
