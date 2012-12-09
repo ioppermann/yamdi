@@ -50,7 +50,7 @@
 	#define ftello(stream) ftello64(stream)
 #endif
 
-#define YAMDI_VERSION			"1.8"
+#define YAMDI_VERSION			"1.9"
 
 #define YAMDI_OK			0
 #define YAMDI_ERROR			1
