@@ -187,6 +187,7 @@ typedef struct {
 
 		short keepmetadata;		// -m (not implemented)
 		short stripmetadata;		// -M
+		short keepscriptdata;		// -S
 
 		short xmlomitkeyframes;		// -X
 
@@ -302,7 +303,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwh")) != -1) {
+	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwhS")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -339,6 +340,9 @@ int main(int argc, char **argv) {
 				flv.options.keepmetadata = 1;
 				break;
 */
+			case 'S':
+				flv.options.keepscriptdata = 1;
+				break;
 			case 'M':
 				flv.options.stripmetadata = 1;
 				break;
@@ -1054,7 +1058,10 @@ int writeFLV(FILE *out, FLV_t *flv, FILE *fp) {
 		flvtag = &flv->index.flvtag[i];
 
 		// Skip every script tag (subject to change if we want to keep existing events)
-		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO)
+		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO && flvtag->tagtype != FLV_TAG_SCRIPTDATA)
+			continue;
+
+		if(flvtag->tagtype == FLV_TAG_SCRIPTDATA && flv->options.keepscriptdata != 1)
 			continue;
 
 		// Write the onlastsecond event
