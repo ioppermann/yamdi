@@ -100,6 +100,7 @@ typedef struct {
 	size_t datasize;		// Size of the data contained in this tag
 	int timestamp;
 	short keyframe;			// Is this tag a keyframe?
+	short onmetadata;               // Is this tag an onMetaData script tag?
 
 	size_t tagsize;		// Size of the whole tag including header and data
 } FLVTag_t;
@@ -191,6 +192,8 @@ typedef struct {
 		short xmlomitkeyframes;		// -X
 
 		short overwriteinput;		// -w
+
+		short preservescripttags;	// -p
 	} options;
 
 	buffer_t onmetadata;
@@ -302,7 +305,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwh")) != -1) {
+	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwhp")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -347,6 +350,9 @@ int main(int argc, char **argv) {
 				break;
 			case 'w':
 				flv.options.overwriteinput = 1;
+				break;
+			case 'p':
+				flv.options.preservescripttags = 1;
 				break;
 			case 'h':
 				printUsage();
@@ -711,6 +717,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	size_t i, index;
 	unsigned char flags;
 	FLVTag_t *flvtag;
+	int tagname_size = 13;
+	unsigned char tagname[tagname_size];
 
 #ifdef DEBUG
 	fprintf(stderr, "[FLV] analyzing FLV ...\n");
@@ -809,6 +817,13 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 
 				if(rv == YAMDI_OK)
 					flv->video.analyzed = 1;
+			}
+		}
+		else if(flvtag->tagtype == FLV_TAG_SCRIPTDATA) {
+			if (flvtag->datasize >= tagname_size) {
+				readFLVTagData(tagname, tagname_size, flvtag, fp);
+				if (strncmp((char*)(tagname+3),"onMetaData",tagname_size - 3) == 0)
+					flvtag->onmetadata = 1;
 			}
 		}
 
@@ -988,8 +1003,12 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 		flvtag = &flv->index.flvtag[i];
 
 		// Skip every script tag (subject to change if we want to keep existing events)
-		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO)
+		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO &&
+				!(flvtag->tagtype == FLV_TAG_SCRIPTDATA && flv->options.preservescripttags == 1))
 			continue;
+
+		// Skip existing onMetaData tag even if we're preserving script tags.
+		if (flvtag->onmetadata == 1) continue;
 
 		// Take care of the onlastsecond event
 		if(flv->options.addonlastsecond == 1 && flv->lastsecondindex == i)
@@ -2331,7 +2350,7 @@ void printUsage(void) {
 
 	fprintf(stderr, "SYNOPSIS\n");
 	fprintf(stderr, "\tyamdi -i input file [-x xml file | -o output file [-x xml file]]\n");
-	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-a interval] [-skMXw] [-h]\n");
+	fprintf(stderr, "\t      [-t temporary file] [-c creator] [-a interval] [-skMXwp] [-h]\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "DESCRIPTION\n");
@@ -2377,6 +2396,8 @@ void printUsage(void) {
 	fprintf(stderr, "\t-w\tReplace the input file with the output file. -i and -o are\n");
 	fprintf(stderr, "\t\trequired to be different files otherwise this option will be\n");
 	fprintf(stderr, "\t\tignored.\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "\t-p\tPreserve script tags in the input file (such as cue points).\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-h\tThis description.\n");
 	fprintf(stderr, "\n");
