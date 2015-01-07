@@ -149,6 +149,7 @@ typedef struct {
 
 		// Calculated values
 		size_t ntags;			// # of video tags
+		size_t nframetags;		// # of actual frame tags (not sequence headers)
 		double framerate;		// ntags / duration
 		double datarate;		// datasize / duration
 		uint64_t datasize;		// Size of the video data
@@ -708,6 +709,7 @@ int freeFLV(FLV_t *flv) {
 int analyzeFLV(FLV_t *flv, FILE *fp) {
 	int rv;
 	size_t i, index;
+	unsigned char flagBytes[2];
 	unsigned char flags;
 	FLVTag_t *flvtag;
 
@@ -766,7 +768,13 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 			flv->video.lasttimestamp = flvtag->timestamp;
 			flv->video.lastframeindex = i;
 
-			readFLVTagData(&flags, 1, flvtag, fp);
+			readFLVTagData(flagBytes, 2, flvtag, fp);
+			flags = flagBytes[0];
+
+			// All non-H.264 video tags, and all H.264 NALU tags, should be actual video frames.
+			if (((flags & 0xf) != 7) || (flagBytes[1] == 1)) {
+				flv->video.nframetags++;
+			}
 
 			// Keyframes
 			flvtag->keyframe = (flags >> 4) & 0xf;
@@ -864,8 +872,8 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 #endif
 
 	// Calculate video framerate
-	if(flv->video.ntags != 0)
-		flv->video.framerate = (double)flv->video.ntags / (double)flv->video.lasttimestamp * 1000.0;
+	if(flv->video.nframetags > 1)
+		flv->video.framerate = ((double)flv->video.nframetags - 1) / (double)flv->video.lasttimestamp * 1000.0;
 
 	// Calculate video datarate
 	if(flv->video.datasize != 0)
@@ -876,6 +884,7 @@ int analyzeFLV(FLV_t *flv, FILE *fp) {
 	fprintf(stderr, "[FLV] video.lasttimestamp = %d ms\n", flv->video.lasttimestamp);
 	fprintf(stderr, "[FLV] video.lastframeindex = %d\n", flv->video.lastframeindex);
 	fprintf(stderr, "[FLV] video.ntags = %d\n", flv->video.ntags);
+	fprintf(stderr, "[FLV] video.nframetags = %d\n", flv->video.nframetags);
 	fprintf(stderr, "[FLV] video.framerate = %f fps\n", flv->video.framerate);
 	fprintf(stderr, "[FLV] video.datasize = %" PRIu64 " kb\n", flv->video.datasize);
 	fprintf(stderr, "[FLV] video.datarate = %f kbit/s\n", flv->video.datarate);
