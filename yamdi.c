@@ -281,7 +281,7 @@ void printUsage(void);
 int main(int argc, char **argv) {
 	FILE *fp_infile = NULL, *fp_outfile = NULL, *fp_xmloutfile = NULL;
 	int c, unlink_infile = 0;
-	char *infile, *outfile, *xmloutfile, *tempfile, *creator;
+	char *infile, *outfile, *xmloutfile, *tempfile;
 	FLV_t flv;
 
 #ifdef DEBUG
@@ -298,7 +298,6 @@ int main(int argc, char **argv) {
 	outfile = NULL;
 	xmloutfile = NULL;
 	tempfile = NULL;
-	creator = NULL;
 
 	initFLV(&flv);
 
