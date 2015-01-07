@@ -185,7 +185,7 @@ typedef struct {
 		short addonmetadata;		// defaults to 1, -M does change it
 		short addaudiokeyframes;	// -a
 
-		short keepmetadata;		// -m (not implemented)
+		short keepmetadata;		// -m
 		short stripmetadata;		// -M
 
 		short xmlomitkeyframes;		// -X
@@ -301,7 +301,7 @@ int main(int argc, char **argv) {
 
 	initFLV(&flv);
 
-	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwh")) != -1) {
+	while((c = getopt(argc, argv, ":i:o:x:t:c:a:lskMXwhm")) != -1) {
 		switch(c) {
 			case 'i':
 				infile = optarg;
@@ -333,11 +333,9 @@ int main(int argc, char **argv) {
 					flv.options.addaudiokeyframes = 0;
 				}
 				break;
-/*
 			case 'm':
 				flv.options.keepmetadata = 1;
 				break;
-*/
 			case 'M':
 				flv.options.stripmetadata = 1;
 				break;
@@ -990,7 +988,9 @@ int finalizeFLV(FLV_t *flv, FILE *fp) {
 		flvtag = &flv->index.flvtag[i];
 
 		// Skip every script tag (subject to change if we want to keep existing events)
-		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO)
+		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO && flvtag->tagtype != FLV_TAG_SCRIPTDATA)
+			continue;
+		if(flvtag->tagtype == FLV_TAG_SCRIPTDATA && flv->options.keepmetadata != 1)
 			continue;
 
 		// Take care of the onlastsecond event
@@ -1056,7 +1056,10 @@ int writeFLV(FILE *out, FLV_t *flv, FILE *fp) {
 		flvtag = &flv->index.flvtag[i];
 
 		// Skip every script tag (subject to change if we want to keep existing events)
-		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO)
+		if(flvtag->tagtype != FLV_TAG_AUDIO && flvtag->tagtype != FLV_TAG_VIDEO && flvtag->tagtype != FLV_TAG_SCRIPTDATA)
+			continue;
+
+		if(flvtag->tagtype == FLV_TAG_SCRIPTDATA && flv->options.keepmetadata != 1)
 			continue;
 
 		// Write the onlastsecond event
@@ -2362,11 +2365,9 @@ void printUsage(void) {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "\t-k\tAdd the onLastKeyframe event.\n");
 	fprintf(stderr, "\n");
-/*
 	fprintf(stderr, "\t-m\tLeave the existing metadata intact.\n");
-	fprintf(stderr, "\t\tMetadata that yamdi does not add is left untouched, e.g. onCuepoint.\n");
+	fprintf(stderr, "\t\tMetadata that yamdi does not add is left untouched, e.g. onCuepoint, onCaptionInfo.\n");
 	fprintf(stderr, "\n");
-*/
 	fprintf(stderr, "\t-M\tStrip all metadata from the FLV. The -s and -k options will\n");
 	fprintf(stderr, "\t\tbe ignored.\n");
 	fprintf(stderr, "\n");
